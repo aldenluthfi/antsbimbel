@@ -1,61 +1,51 @@
-import { useEffect, useMemo, useState } from "react"
-import { CalendarClock, Camera, LogOut, MapPin, ShieldUser, UserRound } from "lucide-react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import {
+  CalendarCheck,
+  CalendarClock,
+  CalendarDays,
+  Camera,
+  Check,
+  ChevronsUpDown,
+  ClipboardList,
+  LogOut,
+  MapPin,
+  Pencil,
+  ShieldUser,
+  Trash2,
+  UserRound,
+} from "lucide-react"
+import { format } from "date-fns"
 
 import { Button } from "@/components/ui/button"
+import { Calendar } from "@/components/ui/calendar"
+import { Input } from "@/components/ui/input"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  type ApiUser,
+  attendanceApi,
+  authApi,
+  type Attendance,
+  type DateFilters,
+  DEFAULT_FILTERS,
+  parseApiError,
+  schedulesApi,
+  type Schedule,
+  type Session,
+  studentsApi,
+  type Student,
+  usersApi,
+} from "@/lib/api"
 import { cn } from "@/lib/utils"
 
-type Role = "admin" | "tutor"
-type DashboardTab = "users" | "schedules" | "attendance"
+type DashboardTab = "users" | "students" | "schedules" | "attendance"
 type CalendarMode = "month" | "week"
-
-type ApiUser = {
-  id: number
-  username: string
-  first_name: string
-  last_name: string
-  email: string
-  is_active: boolean
-  role: Role
-}
-
-type Schedule = {
-  id: number
-  tutor_id: number
-  student_id: string
-  subject_topic: string
-  scheduled_at: string
-  status: "upcoming" | "done" | "cancelled" | "rescheduled"
-}
-
-type Attendance = {
-  check_in_id: number
-  tutor_id: number
-  student_id: string
-  check_in_time: string
-  check_in_location: string
-  check_in_photo: string
-  check_out_id: number | null
-  total_shift_time: string | null
-}
-
-type PaginatedResponse<T> = {
-  count: number
-  next: string | null
-  previous: string | null
-  results: T[]
-}
-
-type Session = {
-  token: string
-  user: ApiUser
-}
-
-type DateFilters = {
-  tutorId: string
-  studentId: string
-  startDate: string
-  endDate: string
-}
 
 type CalendarItem = {
   id: string
@@ -64,88 +54,42 @@ type CalendarItem = {
   date: Date
 }
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://127.0.0.1:8000/api"
 const SESSION_STORAGE_KEY = "antsbimbel_session"
-const DEFAULT_FILTERS: DateFilters = { tutorId: "", studentId: "", startDate: "", endDate: "" }
-
-function parseApiError(error: unknown): string {
-  if (typeof error === "string") {
-    return error
-  }
-
-  if (error instanceof Error) {
-    return error.message
-  }
-
-  return "Something went wrong."
-}
-
-async function apiRequest<T>(
-  path: string,
-  options: RequestInit = {},
-  token?: string
-): Promise<T> {
-  const isFormData = options.body instanceof FormData
-  const headers = new Headers(options.headers)
-
-  if (!isFormData) {
-    headers.set("Content-Type", "application/json")
-  }
-
-  if (token) {
-    headers.set("Authorization", `Token ${token}`)
-  }
-
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers,
-  })
-
-  if (!response.ok) {
-    let detail = `Request failed with status ${response.status}`
-    try {
-      const errorPayload = (await response.json()) as Record<string, unknown>
-      if (typeof errorPayload.detail === "string") {
-        detail = errorPayload.detail
-      } else {
-        detail = JSON.stringify(errorPayload)
-      }
-    } catch {
-      // Keep default fallback message.
-    }
-    throw new Error(detail)
-  }
-
-  if (response.status === 204) {
-    return undefined as T
-  }
-
-  return (await response.json()) as T
-}
-
-function buildListQuery(filters: DateFilters, page: number, pageSize: number): string {
-  const params = new URLSearchParams()
-  params.set("page", String(page))
-  params.set("page_size", String(pageSize))
-
-  if (filters.tutorId.trim()) {
-    params.set("tutor_id", filters.tutorId.trim())
-  }
-  if (filters.studentId.trim()) {
-    params.set("student_id", filters.studentId.trim())
-  }
-  if (filters.startDate) {
-    params.set("start_date", filters.startDate)
-  }
-  if (filters.endDate) {
-    params.set("end_date", filters.endDate)
-  }
-
-  return `?${params.toString()}`
-}
 
 function formatDateTime(isoDate: string): string {
   return new Date(isoDate).toLocaleString()
+}
+
+function toDateInputValue(isoDate: string): string {
+  const date = new Date(isoDate)
+  if (Number.isNaN(date.getTime())) {
+    return ""
+  }
+
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
+function toTimeInputValue(isoDate: string): string {
+  const date = new Date(isoDate)
+  if (Number.isNaN(date.getTime())) {
+    return ""
+  }
+
+  const hours = String(date.getHours()).padStart(2, "0")
+  const minutes = String(date.getMinutes()).padStart(2, "0")
+  return `${hours}:${minutes}`
+}
+
+function toScheduledAtIso(datePart: string, timePart: string): string {
+  const localDateTime = new Date(`${datePart}T${timePart}`)
+  if (Number.isNaN(localDateTime.getTime())) {
+    return ""
+  }
+
+  return localDateTime.toISOString()
 }
 
 function startOfWeek(date: Date): Date {
@@ -187,10 +131,7 @@ function LoginPage({ onLogin }: { onLogin: (session: Session) => void }) {
     setError("")
     setIsSubmitting(true)
     try {
-      const payload = await apiRequest<Session>("/auth/login/", {
-        method: "POST",
-        body: JSON.stringify({ username, password }),
-      })
+      const payload = await authApi.login(username, password)
       onLogin(payload)
     } catch (submissionError) {
       setError(parseApiError(submissionError))
@@ -243,67 +184,306 @@ function LoginPage({ onLogin }: { onLogin: (session: Session) => void }) {
   )
 }
 
+function TutorCombobox({
+  tutors,
+  value,
+  onChange,
+  disabled,
+  placeholder,
+}: {
+  tutors: ApiUser[]
+  value: string
+  onChange: (value: string) => void
+  disabled?: boolean
+  placeholder?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState("")
+
+  const selectedTutor = tutors.find((tutor) => String(tutor.id) === value)
+  const filteredTutors = useMemo(() => {
+    const normalized = query.trim().toLowerCase()
+    if (!normalized) {
+      return tutors
+    }
+
+    return tutors.filter((tutor) => {
+      const fullName = `${tutor.first_name} ${tutor.last_name}`.trim()
+      return (
+        String(tutor.id).includes(normalized) ||
+        tutor.username.toLowerCase().includes(normalized) ||
+        fullName.toLowerCase().includes(normalized) ||
+        tutor.email.toLowerCase().includes(normalized)
+      )
+    })
+  }, [query, tutors])
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          disabled={disabled}
+          className="h-9 w-full justify-between"
+        >
+          <span className="truncate text-left">
+            {selectedTutor
+              ? `${selectedTutor.username} (#${selectedTutor.id})`
+              : (placeholder ?? "Select tutor")}
+          </span>
+          <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-60" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-(--radix-popover-trigger-width) p-2" align="start">
+        <Input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search tutor..."
+          className="h-9"
+        />
+        <div className="mt-2 max-h-56 overflow-auto rounded-md border border-border">
+          {filteredTutors.length === 0 ? (
+            <p className="px-3 py-2 text-sm text-muted-foreground">No tutor found.</p>
+          ) : (
+            filteredTutors.map((tutor) => {
+              const fullName = `${tutor.first_name} ${tutor.last_name}`.trim()
+              const isSelected = String(tutor.id) === value
+
+              return (
+                <button
+                  key={tutor.id}
+                  type="button"
+                  onClick={() => {
+                    onChange(String(tutor.id))
+                    setOpen(false)
+                    setQuery("")
+                  }}
+                  className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-muted"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium">
+                      {tutor.username} {fullName ? `(${fullName})` : ""}
+                    </span>
+                    <span className="block truncate text-xs text-muted-foreground">#{tutor.id}</span>
+                  </span>
+                  {isSelected ? <Check className="size-4" /> : null}
+                </button>
+              )
+            })
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+function StudentCombobox({
+  students,
+  value,
+  onChange,
+  disabled,
+  placeholder,
+}: {
+  students: Student[]
+  value: string
+  onChange: (value: string) => void
+  disabled?: boolean
+  placeholder?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState("")
+
+  const selectedStudent = students.find((student) => student.student_id === value)
+  const filteredStudents = useMemo(() => {
+    const normalized = query.trim().toLowerCase()
+    if (!normalized) {
+      return students
+    }
+
+    return students.filter((student) => {
+      return (
+        student.student_id.toLowerCase().includes(normalized) ||
+        student.full_name.toLowerCase().includes(normalized)
+      )
+    })
+  }, [query, students])
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          disabled={disabled}
+          className="h-9 w-full justify-between"
+        >
+          <span className="truncate text-left">
+            {selectedStudent
+              ? `${selectedStudent.student_id} (${selectedStudent.full_name})`
+              : (placeholder ?? "Select student")}
+          </span>
+          <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-60" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-(--radix-popover-trigger-width) p-2" align="start">
+        <Input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search student..."
+          className="h-9"
+        />
+        <div className="mt-2 max-h-56 overflow-auto rounded-md border border-border">
+          {filteredStudents.length === 0 ? (
+            <p className="px-3 py-2 text-sm text-muted-foreground">No student found.</p>
+          ) : (
+            filteredStudents.map((student) => {
+              const isSelected = student.student_id === value
+
+              return (
+                <button
+                  key={student.id}
+                  type="button"
+                  onClick={() => {
+                    onChange(student.student_id)
+                    setOpen(false)
+                    setQuery("")
+                  }}
+                  className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-muted"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium">{student.student_id}</span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {student.full_name}
+                    </span>
+                  </span>
+                  {isSelected ? <Check className="size-4" /> : null}
+                </button>
+              )
+            })
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+function DatePickerInput({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string
+  onChange: (next: string) => void
+  placeholder: string
+}) {
+  const selectedDate = value ? new Date(`${value}T00:00:00`) : undefined
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          className={cn("h-9 w-full justify-start text-left font-normal", !value && "text-muted-foreground")}
+        >
+          <CalendarDays className="mr-2 size-4" />
+          {value ? format(new Date(`${value}T00:00:00`), "PPP") : placeholder}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0" align="start">
+        <Calendar
+          mode="single"
+          selected={selectedDate}
+          onSelect={(nextDate) => onChange(nextDate ? format(nextDate, "yyyy-MM-dd") : "")}
+          initialFocus
+        />
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 function DateFilterPanel({
   value,
   onChange,
   showTutor,
   lockedTutorId,
+  tutors,
+  students,
+  canPickStudent,
 }: {
   value: DateFilters
   onChange: (next: DateFilters) => void
   showTutor: boolean
   lockedTutorId?: number
+  tutors: ApiUser[]
+  students?: Student[]
+  canPickStudent?: boolean
 }) {
   return (
     <div className="grid gap-3 rounded-2xl border border-border/70 bg-background/70 p-3 md:grid-cols-4">
       {showTutor ? (
         <label className="space-y-1 text-sm">
           <span className="font-medium">Tutor ID</span>
-          <input
+          <TutorCombobox
+            tutors={tutors}
             value={value.tutorId}
-            onChange={(event) => onChange({ ...value, tutorId: event.target.value })}
-            className="h-9 w-full rounded-lg border border-border bg-background px-3 text-sm"
-            placeholder="e.g. 5"
+            onChange={(nextTutorId) => onChange({ ...value, tutorId: nextTutorId })}
+            placeholder="Select tutor"
           />
         </label>
       ) : (
         <label className="space-y-1 text-sm">
           <span className="font-medium">Tutor ID</span>
-          <input
+          <Input
             disabled
             value={String(lockedTutorId ?? "")}
-            className="h-9 w-full rounded-lg border border-border bg-muted px-3 text-sm"
+            className="h-9 w-full bg-muted"
+          />
+        </label>
+      )}
+
+      {canPickStudent ? (
+        <label className="space-y-1 text-sm">
+          <span className="font-medium">Student ID</span>
+          <StudentCombobox
+            students={students ?? []}
+            value={value.studentId}
+            onChange={(nextStudentId) => onChange({ ...value, studentId: nextStudentId })}
+            placeholder="Select student"
+          />
+        </label>
+      ) : (
+        <label className="space-y-1 text-sm">
+          <span className="font-medium">Student ID</span>
+          <input
+            value={value.studentId}
+            onChange={(event) => onChange({ ...value, studentId: event.target.value })}
+            className="h-9 w-full rounded-lg border border-border bg-background px-3 text-sm"
+            placeholder="e.g. STD001"
           />
         </label>
       )}
 
       <label className="space-y-1 text-sm">
-        <span className="font-medium">Student ID</span>
-        <input
-          value={value.studentId}
-          onChange={(event) => onChange({ ...value, studentId: event.target.value })}
-          className="h-9 w-full rounded-lg border border-border bg-background px-3 text-sm"
-          placeholder="e.g. STD001"
-        />
-      </label>
-
-      <label className="space-y-1 text-sm">
         <span className="font-medium">Start date</span>
-        <input
-          type="date"
+        <DatePickerInput
           value={value.startDate}
-          onChange={(event) => onChange({ ...value, startDate: event.target.value })}
-          className="h-9 w-full rounded-lg border border-border bg-background px-3 text-sm"
+          onChange={(nextDate) => onChange({ ...value, startDate: nextDate })}
+          placeholder="Select start date"
         />
       </label>
 
       <label className="space-y-1 text-sm">
         <span className="font-medium">End date</span>
-        <input
-          type="date"
+        <DatePickerInput
           value={value.endDate}
-          onChange={(event) => onChange({ ...value, endDate: event.target.value })}
-          className="h-9 w-full rounded-lg border border-border bg-background px-3 text-sm"
+          onChange={(nextDate) => onChange({ ...value, endDate: nextDate })}
+          placeholder="Select end date"
         />
       </label>
     </div>
@@ -495,17 +675,25 @@ function UsersSection({ token }: { token: string }) {
   const [users, setUsers] = useState<ApiUser[]>([])
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
-  const [roleFilter, setRoleFilter] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
+  const [editingUserId, setEditingUserId] = useState<number | null>(null)
   const [createForm, setCreateForm] = useState({
     username: "",
     first_name: "",
     last_name: "",
     email: "",
-    role: "tutor" as Role,
+    password: "",
+    is_active: true,
+  })
+  const [editForm, setEditForm] = useState({
+    username: "",
+    first_name: "",
+    last_name: "",
+    email: "",
     password: "",
     is_active: true,
   })
@@ -516,14 +704,7 @@ function UsersSection({ token }: { token: string }) {
     setLoading(true)
     setError("")
     try {
-      const params = new URLSearchParams()
-      params.set("page", String(page))
-      params.set("page_size", String(pageSize))
-      if (roleFilter) {
-        params.set("role", roleFilter)
-      }
-
-      const response = await apiRequest<PaginatedResponse<ApiUser>>(`/users/?${params.toString()}`, {}, token)
+      const response = await usersApi.list(token, page, pageSize)
       setUsers(response.results)
       setTotal(response.count)
     } catch (fetchError) {
@@ -536,28 +717,20 @@ function UsersSection({ token }: { token: string }) {
   useEffect(() => {
     void fetchUsers()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, roleFilter])
+  }, [page])
 
   const createUser = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setCreating(true)
     setError("")
     try {
-      await apiRequest<ApiUser>(
-        "/users/",
-        {
-          method: "POST",
-          body: JSON.stringify(createForm),
-        },
-        token
-      )
+      await usersApi.create(createForm, token)
       setIsCreateOpen(false)
       setCreateForm({
         username: "",
         first_name: "",
         last_name: "",
         email: "",
-        role: "tutor",
         password: "",
         is_active: true,
       })
@@ -569,27 +742,88 @@ function UsersSection({ token }: { token: string }) {
     }
   }
 
+  const openEditUser = (user: ApiUser) => {
+    setEditingUserId(user.id)
+    setEditForm({
+      username: user.username,
+      first_name: user.first_name,
+      last_name: user.last_name,
+      email: user.email,
+      password: "",
+      is_active: user.is_active,
+    })
+  }
+
+  const cancelEditUser = () => {
+    setEditingUserId(null)
+    setEditForm({
+      username: "",
+      first_name: "",
+      last_name: "",
+      email: "",
+      password: "",
+      is_active: true,
+    })
+  }
+
+  const updateUser = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!editingUserId) {
+      return
+    }
+
+    setIsEditing(true)
+    setError("")
+
+    const payload: Record<string, string | boolean> = {
+      username: editForm.username,
+      first_name: editForm.first_name,
+      last_name: editForm.last_name,
+      email: editForm.email,
+      is_active: editForm.is_active,
+    }
+
+    const password = editForm.password.trim()
+    if (password) {
+      payload.password = password
+    }
+
+    try {
+      await usersApi.update(editingUserId, payload, token)
+      cancelEditUser()
+      await fetchUsers()
+    } catch (updateError) {
+      setError(parseApiError(updateError))
+    } finally {
+      setIsEditing(false)
+    }
+  }
+
+  const deleteUser = async (user: ApiUser) => {
+    const shouldDelete = window.confirm(`Delete tutor ${user.username}?`)
+    if (!shouldDelete) {
+      return
+    }
+
+    setError("")
+    try {
+      await usersApi.remove(user.id, token)
+      if (editingUserId === user.id) {
+        cancelEditUser()
+      }
+      await fetchUsers()
+    } catch (deleteError) {
+      setError(parseApiError(deleteError))
+    }
+  }
+
   return (
     <section className="space-y-4 rounded-2xl border border-border/70 bg-card/70 p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="text-lg font-semibold">Users</h3>
-        <div className="flex gap-2">
-          <select
-            value={roleFilter}
-            onChange={(event) => {
-              setPage(1)
-              setRoleFilter(event.target.value)
-            }}
-            className="h-8 rounded-lg border border-border bg-background px-2 text-sm"
-          >
-            <option value="">All roles</option>
-            <option value="admin">Admin</option>
-            <option value="tutor">Tutor</option>
-          </select>
-          <Button size="sm" onClick={() => setIsCreateOpen((open) => !open)}>
-            {isCreateOpen ? "Close" : "Create user"}
-          </Button>
-        </div>
+        <Button size="sm" onClick={() => setIsCreateOpen((open) => !open)}>
+          {isCreateOpen ? "Close" : "Create tutor"}
+        </Button>
       </div>
 
       {isCreateOpen ? (
@@ -628,14 +862,6 @@ function UsersSection({ token }: { token: string }) {
             placeholder="Password"
             className="h-9 rounded-lg border border-border px-3 text-sm"
           />
-          <select
-            value={createForm.role}
-            onChange={(event) => setCreateForm({ ...createForm, role: event.target.value as Role })}
-            className="h-9 rounded-lg border border-border px-3 text-sm"
-          >
-            <option value="tutor">Tutor</option>
-            <option value="admin">Admin</option>
-          </select>
           <label className="col-span-full flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -647,6 +873,60 @@ function UsersSection({ token }: { token: string }) {
           <Button className="md:col-span-1" disabled={creating} type="submit">
             {creating ? "Creating..." : "Save new user"}
           </Button>
+        </form>
+      ) : null}
+
+      {editingUserId ? (
+        <form onSubmit={updateUser} className="grid gap-3 rounded-xl border border-border bg-background p-3 md:grid-cols-3">
+          <Input
+            required
+            value={editForm.username}
+            onChange={(event) => setEditForm({ ...editForm, username: event.target.value })}
+            placeholder="Username"
+            className="h-9"
+          />
+          <Input
+            value={editForm.first_name}
+            onChange={(event) => setEditForm({ ...editForm, first_name: event.target.value })}
+            placeholder="First name"
+            className="h-9"
+          />
+          <Input
+            value={editForm.last_name}
+            onChange={(event) => setEditForm({ ...editForm, last_name: event.target.value })}
+            placeholder="Last name"
+            className="h-9"
+          />
+          <Input
+            type="email"
+            value={editForm.email}
+            onChange={(event) => setEditForm({ ...editForm, email: event.target.value })}
+            placeholder="Email"
+            className="h-9"
+          />
+          <Input
+            type="password"
+            value={editForm.password}
+            onChange={(event) => setEditForm({ ...editForm, password: event.target.value })}
+            placeholder="New password (optional)"
+            className="h-9"
+          />
+          <label className="col-span-full flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={editForm.is_active}
+              onChange={(event) => setEditForm({ ...editForm, is_active: event.target.checked })}
+            />
+            Active user
+          </label>
+          <div className="col-span-full flex gap-2">
+            <Button disabled={isEditing} type="submit">
+              {isEditing ? "Saving..." : "Save changes"}
+            </Button>
+            <Button type="button" variant="outline" onClick={cancelEditUser}>
+              Cancel
+            </Button>
+          </div>
         </form>
       ) : null}
 
@@ -663,6 +943,7 @@ function UsersSection({ token }: { token: string }) {
               <th className="px-3 py-2">Role</th>
               <th className="px-3 py-2">Email</th>
               <th className="px-3 py-2">Active</th>
+              <th className="px-3 py-2">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -676,12 +957,248 @@ function UsersSection({ token }: { token: string }) {
                 <td className="px-3 py-2 capitalize">{user.role}</td>
                 <td className="px-3 py-2">{user.email || "-"}</td>
                 <td className="px-3 py-2">{user.is_active ? "Yes" : "No"}</td>
+                <td className="px-3 py-2">
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" onClick={() => openEditUser(user)}>
+                      <Pencil className="size-4" />
+                      Edit
+                    </Button>
+                    <Button size="sm" variant="destructive" onClick={() => deleteUser(user)}>
+                      <Trash2 className="size-4" />
+                      Delete
+                    </Button>
+                  </div>
+                </td>
               </tr>
             ))}
             {users.length === 0 && !loading ? (
               <tr>
-                <td className="px-3 py-5 text-center text-muted-foreground" colSpan={6}>
+                <td className="px-3 py-5 text-center text-muted-foreground" colSpan={7}>
                   No users found.
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+
+      <Pagination page={page} total={total} pageSize={pageSize} onPageChange={setPage} />
+    </section>
+  )
+}
+
+function StudentsSection({ token }: { token: string }) {
+  const [students, setStudents] = useState<Student[]>([])
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
+  const [isCreateOpen, setIsCreateOpen] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
+  const [editingStudentId, setEditingStudentId] = useState<number | null>(null)
+  const [createForm, setCreateForm] = useState({
+    full_name: "",
+    is_active: true,
+  })
+  const [editForm, setEditForm] = useState({
+    full_name: "",
+    is_active: true,
+  })
+
+  const pageSize = 10
+
+  const fetchStudents = async () => {
+    setLoading(true)
+    setError("")
+    try {
+      const response = await studentsApi.list(token, page, pageSize)
+      setStudents(response.results)
+      setTotal(response.count)
+    } catch (fetchError) {
+      setError(parseApiError(fetchError))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void fetchStudents()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page])
+
+  const createStudent = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setCreating(true)
+    setError("")
+    try {
+      await studentsApi.create(createForm, token)
+      setIsCreateOpen(false)
+      setCreateForm({
+        full_name: "",
+        is_active: true,
+      })
+      await fetchStudents()
+    } catch (createError) {
+      setError(parseApiError(createError))
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  const openEditStudent = (student: Student) => {
+    setEditingStudentId(student.id)
+    setEditForm({
+      full_name: student.full_name,
+      is_active: student.is_active,
+    })
+  }
+
+  const cancelEditStudent = () => {
+    setEditingStudentId(null)
+    setEditForm({
+      full_name: "",
+      is_active: true,
+    })
+  }
+
+  const updateStudent = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!editingStudentId) {
+      return
+    }
+
+    setIsEditing(true)
+    setError("")
+
+    try {
+      await studentsApi.update(editingStudentId, editForm, token)
+      cancelEditStudent()
+      await fetchStudents()
+    } catch (updateError) {
+      setError(parseApiError(updateError))
+    } finally {
+      setIsEditing(false)
+    }
+  }
+
+  const deleteStudent = async (student: Student) => {
+    const shouldDelete = window.confirm(`Delete student ${student.student_id}?`)
+    if (!shouldDelete) {
+      return
+    }
+
+    setError("")
+    try {
+      await studentsApi.remove(student.id, token)
+      if (editingStudentId === student.id) {
+        cancelEditStudent()
+      }
+      await fetchStudents()
+    } catch (deleteError) {
+      setError(parseApiError(deleteError))
+    }
+  }
+
+  return (
+    <section className="space-y-4 rounded-2xl border border-border/70 bg-card/70 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="text-lg font-semibold">Students</h3>
+        <Button size="sm" onClick={() => setIsCreateOpen((open) => !open)}>
+          {isCreateOpen ? "Close" : "Create student"}
+        </Button>
+      </div>
+
+      {isCreateOpen ? (
+        <form onSubmit={createStudent} className="grid gap-3 rounded-xl border border-border bg-background p-3 md:grid-cols-2">
+          <Input
+            required
+            value={createForm.full_name}
+            onChange={(event) => setCreateForm({ ...createForm, full_name: event.target.value })}
+            placeholder="Full name"
+            className="h-9"
+          />
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={createForm.is_active}
+              onChange={(event) => setCreateForm({ ...createForm, is_active: event.target.checked })}
+            />
+            Active student
+          </label>
+          <Button className="md:col-span-1" disabled={creating} type="submit">
+            {creating ? "Creating..." : "Save new student"}
+          </Button>
+        </form>
+      ) : null}
+
+      {editingStudentId ? (
+        <form onSubmit={updateStudent} className="grid gap-3 rounded-xl border border-border bg-background p-3 md:grid-cols-2">
+          <Input
+            required
+            value={editForm.full_name}
+            onChange={(event) => setEditForm({ ...editForm, full_name: event.target.value })}
+            placeholder="Full name"
+            className="h-9"
+          />
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={editForm.is_active}
+              onChange={(event) => setEditForm({ ...editForm, is_active: event.target.checked })}
+            />
+            Active student
+          </label>
+          <div className="col-span-full flex gap-2">
+            <Button disabled={isEditing} type="submit">
+              {isEditing ? "Saving..." : "Save changes"}
+            </Button>
+            <Button type="button" variant="outline" onClick={cancelEditStudent}>
+              Cancel
+            </Button>
+          </div>
+        </form>
+      ) : null}
+
+      {error ? <p className="text-sm text-red-500">{error}</p> : null}
+      {loading ? <p className="text-sm text-muted-foreground">Loading students...</p> : null}
+
+      <div className="overflow-x-auto rounded-xl border border-border">
+        <table className="min-w-full text-sm">
+          <thead className="bg-muted/70 text-left">
+            <tr>
+              <th className="px-3 py-2">ID</th>
+              <th className="px-3 py-2">Student ID</th>
+              <th className="px-3 py-2">Full Name</th>
+              <th className="px-3 py-2">Active</th>
+              <th className="px-3 py-2">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {students.map((student) => (
+              <tr key={student.id} className="border-t border-border">
+                <td className="px-3 py-2">{student.id}</td>
+                <td className="px-3 py-2">{student.student_id}</td>
+                <td className="px-3 py-2">{student.full_name}</td>
+                <td className="px-3 py-2">{student.is_active ? "Yes" : "No"}</td>
+                <td className="px-3 py-2">
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" onClick={() => openEditStudent(student)}>
+                      <Pencil className="size-4" />
+                      Edit
+                    </Button>
+                    <Button size="sm" variant="destructive" onClick={() => deleteStudent(student)}>
+                      <Trash2 className="size-4" />
+                      Delete
+                    </Button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {students.length === 0 && !loading ? (
+              <tr>
+                <td className="px-3 py-5 text-center text-muted-foreground" colSpan={5}>
+                  No students found.
                 </td>
               </tr>
             ) : null}
@@ -706,12 +1223,25 @@ function SchedulesSection({
   const [filters, setFilters] = useState<DateFilters>(
     tutorId ? { ...DEFAULT_FILTERS, tutorId: String(tutorId) } : DEFAULT_FILTERS
   )
+  const [tutors, setTutors] = useState<ApiUser[]>([])
+  const [students, setStudents] = useState<Student[]>([])
   const [schedules, setSchedules] = useState<Schedule[]>([])
   const [calendarSchedules, setCalendarSchedules] = useState<Schedule[]>([])
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
+  const [cameraStatus, setCameraStatus] = useState<"idle" | "granted" | "denied">("idle")
+  const [locationStatus, setLocationStatus] = useState<"idle" | "granted" | "denied">("idle")
+  const [checkInLocation, setCheckInLocation] = useState("")
+  const [activeCaptureSchedule, setActiveCaptureSchedule] = useState<Schedule | null>(null)
+  const [captureMode, setCaptureMode] = useState<"check-in" | "check-out" | null>(null)
+  const [capturedPhoto, setCapturedPhoto] = useState<File | null>(null)
+  const [isSubmittingCapture, setIsSubmittingCapture] = useState(false)
+  const [capturedPhotoUrl, setCapturedPhotoUrl] = useState<string | null>(null)
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const cameraStreamRef = useRef<MediaStream | null>(null)
 
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
@@ -731,15 +1261,8 @@ function SchedulesSection({
     setError("")
 
     try {
-      const listQuery = buildListQuery(filters, page, pageSize)
-      const calendarQuery = buildListQuery(filters, 1, 100)
-
-      const listResponse = await apiRequest<PaginatedResponse<Schedule>>(`/schedules/${listQuery}`, {}, token)
-      const calendarResponse = await apiRequest<PaginatedResponse<Schedule>>(
-        `/schedules/${calendarQuery}`,
-        {},
-        token
-      )
+      const listResponse = await schedulesApi.list(filters, page, pageSize, token)
+      const calendarResponse = await schedulesApi.list(filters, 1, 100, token)
 
       setSchedules(listResponse.results)
       setTotal(listResponse.count)
@@ -755,6 +1278,49 @@ function SchedulesSection({
     void fetchSchedules()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, filters])
+
+  useEffect(() => {
+    if (tutorId) {
+      return
+    }
+
+    const fetchTutors = async () => {
+      try {
+        const response = await usersApi.list(token, 1, 100)
+        setTutors(response.results)
+      } catch {
+        // Fallback to empty options if tutor fetch fails.
+      }
+    }
+
+    void fetchTutors()
+  }, [token, tutorId])
+
+  useEffect(() => {
+    if (!canManage) {
+      return
+    }
+
+    const fetchStudents = async () => {
+      try {
+        const response = await studentsApi.list(token, 1, 100)
+        setStudents(response.results)
+      } catch {
+        // Fallback to empty options if student fetch fails.
+      }
+    }
+
+    void fetchStudents()
+  }, [canManage, token])
+
+  useEffect(() => {
+    return () => {
+      cameraStreamRef.current?.getTracks().forEach((track: MediaStreamTrack) => track.stop())
+      if (capturedPhotoUrl) {
+        URL.revokeObjectURL(capturedPhotoUrl)
+      }
+    }
+  }, [capturedPhotoUrl])
 
   const resetForm = () => {
     setEditing(null)
@@ -778,14 +1344,47 @@ function SchedulesSection({
       tutor_id: String(schedule.tutor_id),
       student_id: schedule.student_id,
       subject_topic: schedule.subject_topic,
-      scheduled_at: schedule.scheduled_at.slice(0, 16),
+      scheduled_at: schedule.scheduled_at,
       status: schedule.status,
     })
     setIsFormOpen(true)
   }
 
+  const updateScheduledDate = (nextDate: string) => {
+    const timePart = toTimeInputValue(formState.scheduled_at) || "00:00"
+    const nextScheduledAt = nextDate ? toScheduledAtIso(nextDate, timePart) : ""
+    setFormState({ ...formState, scheduled_at: nextScheduledAt })
+  }
+
+  const updateScheduledTime = (nextTime: string) => {
+    const datePart = toDateInputValue(formState.scheduled_at)
+    const nextScheduledAt = datePart && nextTime ? toScheduledAtIso(datePart, nextTime) : ""
+    setFormState({ ...formState, scheduled_at: nextScheduledAt })
+  }
+
   const saveSchedule = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (!formState.tutor_id) {
+      setError("Please select a tutor.")
+      return
+    }
+    if (!formState.student_id.trim()) {
+      setError("Please select a student.")
+      return
+    }
+    const scheduledDate = toDateInputValue(formState.scheduled_at)
+    const scheduledTime = toTimeInputValue(formState.scheduled_at)
+
+    if (!scheduledDate || !scheduledTime) {
+      setError("Please select schedule date and time.")
+      return
+    }
+
+    if (!formState.scheduled_at) {
+      setError("Invalid schedule date or time.")
+      return
+    }
+
     setIsSaving(true)
     setError("")
 
@@ -793,19 +1392,15 @@ function SchedulesSection({
       tutor_id: Number(formState.tutor_id),
       student_id: formState.student_id,
       subject_topic: formState.subject_topic,
-      scheduled_at: new Date(formState.scheduled_at).toISOString(),
+      scheduled_at: formState.scheduled_at,
       status: formState.status,
     }
 
     try {
       if (editing) {
-        await apiRequest<Schedule>(
-          `/schedules/${editing.id}/`,
-          { method: "PATCH", body: JSON.stringify(payload) },
-          token
-        )
+        await schedulesApi.update(editing.id, payload, token)
       } else {
-        await apiRequest<Schedule>("/schedules/", { method: "POST", body: JSON.stringify(payload) }, token)
+        await schedulesApi.create(payload, token)
       }
       setIsFormOpen(false)
       resetForm()
@@ -824,10 +1419,185 @@ function SchedulesSection({
     }
 
     try {
-      await apiRequest<void>(`/schedules/${id}/`, { method: "DELETE" }, token)
+      await schedulesApi.remove(id, token)
       await fetchSchedules()
     } catch (deleteError) {
       setError(parseApiError(deleteError))
+    }
+  }
+
+  const stopCamera = () => {
+    cameraStreamRef.current?.getTracks().forEach((track: MediaStreamTrack) => track.stop())
+    cameraStreamRef.current = null
+    if (videoRef.current) {
+      videoRef.current.srcObject = null
+    }
+  }
+
+  const requestCurrentLocation = async () => {
+    const isBrowser = typeof window !== "undefined"
+    if (!isBrowser || !("geolocation" in navigator)) {
+      setLocationStatus("denied")
+      return
+    }
+
+    await new Promise<void>((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setLocationStatus("granted")
+          setCheckInLocation(`${position.coords.latitude}, ${position.coords.longitude}`)
+          resolve()
+        },
+        () => {
+          setLocationStatus("denied")
+          resolve()
+        }
+      )
+    })
+  }
+
+  const startCamera = async () => {
+    if (!("mediaDevices" in navigator)) {
+      setCameraStatus("denied")
+      return false
+    }
+
+    try {
+      stopCamera()
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: "environment" },
+        },
+      })
+      cameraStreamRef.current = stream
+      setCameraStatus("granted")
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+        await videoRef.current.play()
+      }
+
+      return true
+    } catch {
+      setCameraStatus("denied")
+      return false
+    }
+  }
+
+  const openCaptureDialog = async (mode: "check-in" | "check-out", schedule: Schedule) => {
+    setError("")
+    setActiveCaptureSchedule(schedule)
+    setCaptureMode(mode)
+    setCapturedPhoto(null)
+    if (capturedPhotoUrl) {
+      URL.revokeObjectURL(capturedPhotoUrl)
+      setCapturedPhotoUrl(null)
+    }
+
+    const hasCamera = await startCamera()
+    if (!hasCamera) {
+      setError("Camera permission is required to continue.")
+      return
+    }
+
+    if (mode === "check-in") {
+      await requestCurrentLocation()
+    }
+  }
+
+  const closeCaptureDialog = () => {
+    stopCamera()
+    setActiveCaptureSchedule(null)
+    setCaptureMode(null)
+    setCapturedPhoto(null)
+    if (capturedPhotoUrl) {
+      URL.revokeObjectURL(capturedPhotoUrl)
+      setCapturedPhotoUrl(null)
+    }
+  }
+
+  const captureFromCamera = () => {
+    if (!videoRef.current || !canvasRef.current) {
+      setError("Unable to access camera preview.")
+      return
+    }
+
+    const video = videoRef.current
+    const canvas = canvasRef.current
+    canvas.width = video.videoWidth || 1280
+    canvas.height = video.videoHeight || 720
+
+    const context = canvas.getContext("2d")
+    if (!context) {
+      setError("Unable to capture photo from camera.")
+      return
+    }
+
+    context.drawImage(video, 0, 0, canvas.width, canvas.height)
+
+    canvas.toBlob(
+      (blob: Blob | null) => {
+        if (!blob) {
+          setError("Failed to generate captured image.")
+          return
+        }
+
+        const file = new File([blob], `capture-${Date.now()}.jpg`, { type: "image/jpeg" })
+        setCapturedPhoto(file)
+        if (capturedPhotoUrl) {
+          URL.revokeObjectURL(capturedPhotoUrl)
+        }
+        setCapturedPhotoUrl(URL.createObjectURL(file))
+      },
+      "image/jpeg",
+      0.92
+    )
+  }
+
+  const submitCapturedAttendance = async () => {
+    if (!activeCaptureSchedule || !captureMode) {
+      return
+    }
+    if (!capturedPhoto) {
+      setError("Please capture a photo first.")
+      return
+    }
+
+    setError("")
+    setIsSubmittingCapture(true)
+
+    try {
+      if (captureMode === "check-in") {
+        if (!checkInLocation.trim()) {
+          setError("Location is required for check-in.")
+          return
+        }
+
+        const formData = new FormData()
+        formData.append("schedule_id", String(activeCaptureSchedule.id))
+        formData.append("student_id", activeCaptureSchedule.student_id)
+        formData.append("check_in_location", checkInLocation.trim())
+        formData.append("check_in_photo", capturedPhoto)
+        formData.append("check_in_time", new Date().toISOString())
+        await attendanceApi.create(formData, token)
+      } else {
+        if (!activeCaptureSchedule.check_in_id) {
+          setError("Check-in record is missing for this schedule.")
+          return
+        }
+
+        const formData = new FormData()
+        formData.append("check_out_time", new Date().toISOString())
+        formData.append("check_out_photo", capturedPhoto)
+        await attendanceApi.update(activeCaptureSchedule.check_in_id, formData, token)
+      }
+
+      closeCaptureDialog()
+      await fetchSchedules()
+    } catch (submitError) {
+      setError(parseApiError(submitError))
+    } finally {
+      setIsSubmittingCapture(false)
     }
   }
 
@@ -836,7 +1606,7 @@ function SchedulesSection({
       calendarSchedules.map((schedule) => ({
         id: `schedule-${schedule.id}`,
         title: `${schedule.student_id} • ${schedule.subject_topic}`,
-        subtitle: `Tutor ${schedule.tutor_id} • ${schedule.status}`,
+        subtitle: `Tutor ${schedule.tutor_id} • ${schedule.status} • CI ${schedule.check_in_id ? "exist" : "none"} • CO ${schedule.check_out_id ? "exist" : "none"}`,
         date: new Date(schedule.scheduled_at),
       })),
     [calendarSchedules]
@@ -866,6 +1636,9 @@ function SchedulesSection({
         }}
         showTutor={!tutorId}
         lockedTutorId={tutorId}
+        tutors={tutors}
+        students={students}
+        canPickStudent={canManage}
       />
 
       {error ? <p className="text-sm text-red-500">{error}</p> : null}
@@ -875,22 +1648,34 @@ function SchedulesSection({
         <form onSubmit={saveSchedule} className="grid gap-3 rounded-xl border border-border bg-background p-3 md:grid-cols-2">
           <label className="space-y-1 text-sm">
             <span className="font-medium">Tutor ID</span>
-            <input
-              required
-              disabled={Boolean(tutorId)}
-              value={formState.tutor_id}
-              onChange={(event) => setFormState({ ...formState, tutor_id: event.target.value })}
-              className="h-9 w-full rounded-lg border border-border px-3 text-sm"
-            />
+            {tutorId ? (
+              <Input disabled value={formState.tutor_id} className="h-9 w-full bg-muted" />
+            ) : (
+              <TutorCombobox
+                tutors={tutors}
+                value={formState.tutor_id}
+                onChange={(nextTutorId) => setFormState({ ...formState, tutor_id: nextTutorId })}
+                placeholder="Select tutor"
+              />
+            )}
           </label>
           <label className="space-y-1 text-sm">
             <span className="font-medium">Student ID</span>
-            <input
-              required
-              value={formState.student_id}
-              onChange={(event) => setFormState({ ...formState, student_id: event.target.value })}
-              className="h-9 w-full rounded-lg border border-border px-3 text-sm"
-            />
+            {canManage ? (
+              <StudentCombobox
+                students={students}
+                value={formState.student_id}
+                onChange={(nextStudentId) => setFormState({ ...formState, student_id: nextStudentId })}
+                placeholder="Select student"
+              />
+            ) : (
+              <input
+                required
+                value={formState.student_id}
+                onChange={(event) => setFormState({ ...formState, student_id: event.target.value })}
+                className="h-9 w-full rounded-lg border border-border px-3 text-sm"
+              />
+            )}
           </label>
           <label className="space-y-1 text-sm">
             <span className="font-medium">Subject / topic</span>
@@ -902,29 +1687,42 @@ function SchedulesSection({
             />
           </label>
           <label className="space-y-1 text-sm">
-            <span className="font-medium">Scheduled at</span>
+            <span className="font-medium">Scheduled date</span>
+            <DatePickerInput
+              value={toDateInputValue(formState.scheduled_at)}
+              onChange={updateScheduledDate}
+              placeholder="Select schedule date"
+            />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="font-medium">Scheduled time</span>
             <input
               required
-              type="datetime-local"
-              value={formState.scheduled_at}
-              onChange={(event) => setFormState({ ...formState, scheduled_at: event.target.value })}
+              type="time"
+              step={60}
+              value={toTimeInputValue(formState.scheduled_at)}
+              onChange={(event) => updateScheduledTime(event.target.value)}
               className="h-9 w-full rounded-lg border border-border px-3 text-sm"
             />
           </label>
           <label className="space-y-1 text-sm md:col-span-2">
             <span className="font-medium">Status</span>
-            <select
+            <Select
               value={formState.status}
-              onChange={(event) =>
-                setFormState({ ...formState, status: event.target.value as Schedule["status"] })
+              onValueChange={(nextStatus) =>
+                setFormState({ ...formState, status: nextStatus as Schedule["status"] })
               }
-              className="h-9 w-full rounded-lg border border-border px-3 text-sm"
             >
-              <option value="upcoming">Upcoming</option>
-              <option value="done">Done</option>
-              <option value="cancelled">Cancelled</option>
-              <option value="rescheduled">Rescheduled</option>
-            </select>
+              <SelectTrigger className="h-9 w-full">
+                <SelectValue placeholder="Select status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="upcoming">Upcoming</SelectItem>
+                <SelectItem value="done">Done</SelectItem>
+                <SelectItem value="cancelled">Cancelled</SelectItem>
+                <SelectItem value="rescheduled">Rescheduled</SelectItem>
+              </SelectContent>
+            </Select>
           </label>
           <div className="flex gap-2 md:col-span-2">
             <Button type="submit" disabled={isSaving}>
@@ -947,6 +1745,8 @@ function SchedulesSection({
               <th className="px-3 py-2">Topic</th>
               <th className="px-3 py-2">Datetime</th>
               <th className="px-3 py-2">Status</th>
+              <th className="px-3 py-2">Check In</th>
+              <th className="px-3 py-2">Check Out</th>
               {canManage ? <th className="px-3 py-2">Actions</th> : null}
             </tr>
           </thead>
@@ -959,6 +1759,30 @@ function SchedulesSection({
                 <td className="px-3 py-2">{schedule.subject_topic}</td>
                 <td className="px-3 py-2">{formatDateTime(schedule.scheduled_at)}</td>
                 <td className="px-3 py-2 capitalize">{schedule.status}</td>
+                <td className="px-3 py-2">
+                  {canManage ? (
+                    schedule.check_in_id ? "Exist" : "Not yet"
+                  ) : schedule.check_in_id ? (
+                    "Exist"
+                  ) : (
+                    <Button size="sm" onClick={() => void openCaptureDialog("check-in", schedule)}>
+                      Check in
+                    </Button>
+                  )}
+                </td>
+                <td className="px-3 py-2">
+                  {canManage ? (
+                    schedule.check_out_id ? "Exist" : "Not yet"
+                  ) : schedule.check_out_id ? (
+                    "Exist"
+                  ) : schedule.check_in_id ? (
+                    <Button size="sm" variant="outline" onClick={() => void openCaptureDialog("check-out", schedule)}>
+                      Check out
+                    </Button>
+                  ) : (
+                    "Check in first"
+                  )}
+                </td>
                 {canManage ? (
                   <td className="px-3 py-2">
                     <div className="flex gap-2">
@@ -975,7 +1799,7 @@ function SchedulesSection({
             ))}
             {schedules.length === 0 && !loading ? (
               <tr>
-                <td className="px-3 py-5 text-center text-muted-foreground" colSpan={canManage ? 7 : 6}>
+                <td className="px-3 py-5 text-center text-muted-foreground" colSpan={canManage ? 9 : 8}>
                   No schedules found.
                 </td>
               </tr>
@@ -983,6 +1807,84 @@ function SchedulesSection({
           </tbody>
         </table>
       </div>
+
+      {!canManage && activeCaptureSchedule && captureMode ? (
+        <section className="space-y-3 rounded-xl border border-border bg-background p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h4 className="font-semibold capitalize">
+              {captureMode} for schedule #{activeCaptureSchedule.id}
+            </h4>
+            <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+              <span className="rounded-full bg-muted px-2 py-1">Camera: {cameraStatus}</span>
+              {captureMode === "check-in" ? (
+                <span className="rounded-full bg-muted px-2 py-1">Location: {locationStatus}</span>
+              ) : null}
+            </div>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Capture a live photo using camera. File upload is disabled for this action.
+          </p>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-2">
+              <video ref={videoRef} autoPlay muted playsInline className="w-full rounded-lg border border-border bg-black/80" />
+              <canvas ref={canvasRef} className="hidden" />
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" onClick={() => void startCamera()}>
+                  Restart camera
+                </Button>
+                <Button type="button" onClick={captureFromCamera}>
+                  Capture photo
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              {capturedPhotoUrl ? (
+                <img
+                  src={capturedPhotoUrl}
+                  alt="Captured attendance"
+                  className="w-full rounded-lg border border-border object-cover"
+                />
+              ) : (
+                <div className="flex min-h-40 items-center justify-center rounded-lg border border-dashed border-border text-sm text-muted-foreground">
+                  No photo captured yet.
+                </div>
+              )}
+
+              {captureMode === "check-in" ? (
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <Input
+                      required
+                      value={checkInLocation}
+                      onChange={(event) => setCheckInLocation(event.target.value)}
+                      placeholder="Latitude, Longitude"
+                      className="h-9"
+                    />
+                    <Button type="button" variant="outline" onClick={() => void requestCurrentLocation()}>
+                      <MapPin className="size-4" />
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  disabled={isSubmittingCapture}
+                  onClick={() => void submitCapturedAttendance()}
+                >
+                  {isSubmittingCapture ? "Submitting..." : captureMode === "check-in" ? "Submit check in" : "Submit check out"}
+                </Button>
+                <Button type="button" variant="outline" onClick={closeCaptureDialog}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </div>
+        </section>
+      ) : null}
 
       <Pagination page={page} total={total} pageSize={pageSize} onPageChange={setPage} />
       <CalendarBoard title="Schedules Calendar" items={calendarItems} />
@@ -1000,6 +1902,9 @@ function AttendanceSection({
   const [filters, setFilters] = useState<DateFilters>(
     user.role === "tutor" ? { ...DEFAULT_FILTERS, tutorId: String(user.id) } : DEFAULT_FILTERS
   )
+  const [tutors, setTutors] = useState<ApiUser[]>([])
+  const [students, setStudents] = useState<Student[]>([])
+  const [tutorSchedules, setTutorSchedules] = useState<Schedule[]>([])
   const [attendance, setAttendance] = useState<Attendance[]>([])
   const [calendarAttendance, setCalendarAttendance] = useState<Attendance[]>([])
   const [page, setPage] = useState(1)
@@ -1010,6 +1915,7 @@ function AttendanceSection({
   const [cameraStatus, setCameraStatus] = useState<"idle" | "granted" | "denied">("idle")
   const [locationStatus, setLocationStatus] = useState<"idle" | "granted" | "denied">("idle")
 
+  const [checkInScheduleId, setCheckInScheduleId] = useState("")
   const [checkInStudentId, setCheckInStudentId] = useState("")
   const [checkInLocation, setCheckInLocation] = useState("")
   const [checkInPhoto, setCheckInPhoto] = useState<File | null>(null)
@@ -1021,25 +1927,36 @@ function AttendanceSection({
 
   const pageSize = 10
   const isTutor = user.role === "tutor"
+  const availableTutorSchedules = tutorSchedules.filter((schedule) => schedule.check_in_id === null)
+  const selectedTutorSchedule = tutorSchedules.find(
+    (schedule) => String(schedule.id) === checkInScheduleId
+  )
+
+  const fetchTutorSchedulesForCheckIn = async () => {
+    if (!isTutor) {
+      return
+    }
+
+    try {
+      const response = await schedulesApi.list(
+        { ...DEFAULT_FILTERS, tutorId: String(user.id) },
+        1,
+        100,
+        token
+      )
+      setTutorSchedules(response.results)
+    } catch {
+      setTutorSchedules([])
+    }
+  }
 
   const fetchAttendance = async () => {
     setLoading(true)
     setError("")
     try {
       const fixedFilters = isTutor ? { ...filters, tutorId: String(user.id) } : filters
-      const listQuery = buildListQuery(fixedFilters, page, pageSize)
-      const calendarQuery = buildListQuery(fixedFilters, 1, 100)
-
-      const listResponse = await apiRequest<PaginatedResponse<Attendance>>(
-        `/attendance/${listQuery}`,
-        {},
-        token
-      )
-      const calendarResponse = await apiRequest<PaginatedResponse<Attendance>>(
-        `/attendance/${calendarQuery}`,
-        {},
-        token
-      )
+      const listResponse = await attendanceApi.list(fixedFilters, page, pageSize, token)
+      const calendarResponse = await attendanceApi.list(fixedFilters, 1, 100, token)
 
       setAttendance(listResponse.results)
       setTotal(listResponse.count)
@@ -1055,6 +1972,54 @@ function AttendanceSection({
     void fetchAttendance()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, filters])
+
+  useEffect(() => {
+    if (isTutor) {
+      return
+    }
+
+    const fetchTutors = async () => {
+      try {
+        const response = await usersApi.list(token, 1, 100)
+        setTutors(response.results)
+      } catch {
+        // Fallback to empty options if tutor fetch fails.
+      }
+    }
+
+    void fetchTutors()
+  }, [isTutor, token])
+
+  useEffect(() => {
+    void fetchTutorSchedulesForCheckIn()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTutor, token, user.id])
+
+  useEffect(() => {
+    if (!selectedTutorSchedule) {
+      setCheckInStudentId("")
+      return
+    }
+
+    setCheckInStudentId(selectedTutorSchedule.student_id)
+  }, [selectedTutorSchedule])
+
+  useEffect(() => {
+    if (isTutor) {
+      return
+    }
+
+    const fetchStudents = async () => {
+      try {
+        const response = await studentsApi.list(token, 1, 100)
+        setStudents(response.results)
+      } catch {
+        // Fallback to empty options if student fetch fails.
+      }
+    }
+
+    void fetchStudents()
+  }, [isTutor, token])
 
   const askDevicePermissions = async () => {
     try {
@@ -1078,6 +2043,10 @@ function AttendanceSection({
 
   const submitCheckIn = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (!checkInScheduleId) {
+      setError("Please select a schedule first.")
+      return
+    }
     if (!checkInPhoto) {
       setError("Check-in photo is required.")
       return
@@ -1087,15 +2056,18 @@ function AttendanceSection({
     setIsSubmittingCheckIn(true)
 
     const formData = new FormData()
+    formData.append("schedule_id", checkInScheduleId)
     formData.append("student_id", checkInStudentId)
     formData.append("check_in_location", checkInLocation)
     formData.append("check_in_photo", checkInPhoto)
     formData.append("check_in_time", new Date().toISOString())
 
     try {
-      await apiRequest<Attendance>("/attendance/", { method: "POST", body: formData }, token)
+      await attendanceApi.create(formData, token)
+      setCheckInScheduleId("")
       setCheckInStudentId("")
       setCheckInPhoto(null)
+      await fetchTutorSchedulesForCheckIn()
       await fetchAttendance()
     } catch (checkInError) {
       setError(parseApiError(checkInError))
@@ -1123,14 +2095,7 @@ function AttendanceSection({
     formData.append("check_out_photo", checkOutPhoto)
 
     try {
-      await apiRequest<Attendance>(
-        `/attendance/${checkoutAttendanceId}/`,
-        {
-          method: "PATCH",
-          body: formData,
-        },
-        token
-      )
+      await attendanceApi.update(Number(checkoutAttendanceId), formData, token)
       setCheckoutAttendanceId("")
       setCheckOutPhoto(null)
       await fetchAttendance()
@@ -1171,6 +2136,9 @@ function AttendanceSection({
         }}
         showTutor={!isTutor}
         lockedTutorId={isTutor ? user.id : undefined}
+        tutors={tutors}
+        students={students}
+        canPickStudent={!isTutor}
       />
 
       {isTutor ? (
@@ -1197,13 +2165,31 @@ function AttendanceSection({
               <Camera className="size-4" />
               Check In
             </h4>
+            <select
+              required
+              value={checkInScheduleId}
+              onChange={(event) => setCheckInScheduleId(event.target.value)}
+              className="h-9 w-full rounded-lg border border-border px-3 text-sm"
+            >
+              <option value="">Select schedule</option>
+              {availableTutorSchedules.map((schedule) => (
+                <option key={schedule.id} value={schedule.id}>
+                  #{schedule.id} | {schedule.student_id} | {formatDateTime(schedule.scheduled_at)}
+                </option>
+              ))}
+            </select>
             <input
               required
+              readOnly
               value={checkInStudentId}
-              onChange={(event) => setCheckInStudentId(event.target.value)}
               placeholder="Student ID"
-              className="h-9 w-full rounded-lg border border-border px-3 text-sm"
+              className="h-9 w-full rounded-lg border border-border bg-muted px-3 text-sm"
             />
+            {availableTutorSchedules.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                All schedules already have check-in records, or no schedules are available yet.
+              </p>
+            ) : null}
             <div className="flex gap-2">
               <input
                 required
@@ -1342,7 +2328,17 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
               onClick={() => setActiveTab("users")}
             >
               <UserRound className="size-4" />
-              Users
+              Tutors
+            </Button>
+          ) : null}
+          {isAdmin ? (
+            <Button
+              variant={activeTab === "students" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setActiveTab("students")}
+            >
+              <UserRound className="size-4" />
+              Students
             </Button>
           ) : null}
           <Button
@@ -1350,22 +2346,27 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
             size="sm"
             onClick={() => setActiveTab("schedules")}
           >
+            <CalendarCheck className="size-4" />
             Schedules
           </Button>
-          <Button
-            variant={activeTab === "attendance" ? "default" : "outline"}
-            size="sm"
-            onClick={() => setActiveTab("attendance")}
-          >
-            Attendance
-          </Button>
+          {isAdmin ? (
+            <Button
+              variant={activeTab === "attendance" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setActiveTab("attendance")}
+            >
+              <ClipboardList className="size-4" />
+              Attendance
+            </Button>
+          ) : null}
         </nav>
 
         {activeTab === "users" && isAdmin ? <UsersSection token={session.token} /> : null}
+        {activeTab === "students" && isAdmin ? <StudentsSection token={session.token} /> : null}
         {activeTab === "schedules" ? (
           <SchedulesSection token={session.token} canManage={isAdmin} tutorId={isAdmin ? undefined : session.user.id} />
         ) : null}
-        {activeTab === "attendance" ? (
+        {isAdmin && activeTab === "attendance" ? (
           <AttendanceSection token={session.token} user={session.user} />
         ) : null}
       </div>
@@ -1398,7 +2399,7 @@ export function App() {
   const logout = async () => {
     if (session?.token) {
       try {
-        await apiRequest<{ detail: string }>("/auth/logout/", { method: "POST" }, session.token)
+        await authApi.logout(session.token)
       } catch {
         // Ignore logout API failures and clear local state anyway.
       }

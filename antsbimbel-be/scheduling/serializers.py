@@ -1,14 +1,14 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
+from django.db import transaction
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
-from .models import CheckIn, CheckOut, Schedule
+from .models import CheckIn, CheckOut, Schedule, Student
 from .permissions import is_admin, is_tutor
 
 User = get_user_model()
 
 class UserSerializer(serializers.ModelSerializer):
-    role = serializers.ChoiceField(choices=['admin', 'tutor'])
     password = serializers.CharField(write_only=True, required=False)
 
     class Meta:
@@ -20,32 +20,22 @@ class UserSerializer(serializers.ModelSerializer):
             'last_name',
             'email',
             'is_active',
-            'role',
             'password',
         ]
-
-    def validate_role(self, value):
-        if value not in {'admin', 'tutor'}:
-            raise serializers.ValidationError('Role must be either admin or tutor.')
-        return value
 
     def validate_password(self, value):
         validate_password(value)
         return value
 
-    def _apply_role(self, instance, role):
-        if role == 'admin':
-            instance.is_staff = True
-        else:
-            instance.is_staff = False
-            instance.is_superuser = False
+    def _apply_tutor_role(self, instance):
+        instance.is_staff = False
+        instance.is_superuser = False
 
     def create(self, validated_data):
-        role = validated_data.pop('role', 'tutor')
         password = validated_data.pop('password', None)
 
         user = User(**validated_data)
-        self._apply_role(user, role)
+        self._apply_tutor_role(user)
 
         if password:
             user.set_password(password)
@@ -56,14 +46,10 @@ class UserSerializer(serializers.ModelSerializer):
         return user
 
     def update(self, instance, validated_data):
-        role = validated_data.pop('role', None)
         password = validated_data.pop('password', None)
 
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
-
-        if role is not None:
-            self._apply_role(instance, role)
 
         if password:
             validate_password(password, user=instance)
@@ -92,9 +78,24 @@ class MessageSerializer(serializers.Serializer):
     detail = serializers.CharField()
 
 
+class StudentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Student
+        fields = [
+            'id',
+            'student_id',
+            'full_name',
+            'is_active',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'student_id', 'created_at', 'updated_at']
+
+
 class CheckInSerializer(serializers.ModelSerializer):
     check_in_id = serializers.IntegerField(source='id', read_only=True)
     tutor_id = serializers.PrimaryKeyRelatedField(source='tutor', queryset=User.objects.all(), required=False)
+    schedule_id = serializers.PrimaryKeyRelatedField(source='schedule', queryset=Schedule.objects.all(), write_only=True, required=False)
     check_out_id = serializers.SerializerMethodField()
     check_out_photo = serializers.ImageField(write_only=True, required=False)
     check_out_time = serializers.DateTimeField(write_only=True, required=False)
@@ -105,6 +106,7 @@ class CheckInSerializer(serializers.ModelSerializer):
         fields = [
             'check_in_id',
             'tutor_id',
+            'schedule_id',
             'student_id',
             'check_in_time',
             'check_in_location',
@@ -120,6 +122,17 @@ class CheckInSerializer(serializers.ModelSerializer):
         if is_admin(tutor):
             raise serializers.ValidationError('Tutor must be a non-admin user.')
         return tutor
+
+    def validate_schedule_id(self, schedule):
+        request = self.context.get('request')
+
+        if schedule.check_in_id:
+            raise serializers.ValidationError('This schedule is already linked to a check-in.')
+
+        if request and is_tutor(request.user) and schedule.tutor_id != request.user.id:
+            raise serializers.ValidationError('Tutors can only link check-ins to their own schedules.')
+
+        return schedule
 
     @extend_schema_field(serializers.IntegerField(allow_null=True))
     def get_check_out_id(self, obj):
@@ -150,8 +163,10 @@ class CheckInSerializer(serializers.ModelSerializer):
                 setattr(check_out, key, value)
             check_out.save()
 
+    @transaction.atomic
     def create(self, validated_data):
         request = self.context.get('request')
+        schedule = validated_data.pop('schedule', None)
         check_out_photo = validated_data.pop('check_out_photo', None)
         check_out_time = validated_data.pop('check_out_time', None)
 
@@ -159,6 +174,11 @@ class CheckInSerializer(serializers.ModelSerializer):
             validated_data['tutor'] = request.user
 
         check_in = CheckIn.objects.create(**validated_data)
+
+        if schedule:
+            schedule.check_in = check_in
+            schedule.save(update_fields=['check_in'])
+
         self._upsert_checkout(check_in, check_out_photo, check_out_time)
         return check_in
 
@@ -180,6 +200,8 @@ class CheckInSerializer(serializers.ModelSerializer):
 
 class ScheduleSerializer(serializers.ModelSerializer):
     tutor_id = serializers.PrimaryKeyRelatedField(source='tutor', queryset=User.objects.all())
+    check_in_id = serializers.SerializerMethodField()
+    check_out_id = serializers.SerializerMethodField()
 
     class Meta:
         model = Schedule
@@ -190,9 +212,22 @@ class ScheduleSerializer(serializers.ModelSerializer):
             'subject_topic',
             'scheduled_at',
             'status',
+            'check_in_id',
+            'check_out_id',
         ]
 
     def validate_tutor_id(self, tutor):
         if is_admin(tutor):
             raise serializers.ValidationError('Tutor must be a non-admin user.')
         return tutor
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_check_in_id(self, obj):
+        check_in = getattr(obj, 'check_in', None)
+        return check_in.id if check_in else None
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_check_out_id(self, obj):
+        check_in = getattr(obj, 'check_in', None)
+        check_out = getattr(check_in, 'check_out', None) if check_in else None
+        return check_out.id if check_out else None

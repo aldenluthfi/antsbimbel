@@ -3,6 +3,40 @@ from django.db import models
 from django.utils import timezone
 
 
+class Student(models.Model):
+	student_id = models.CharField(max_length=64, unique=True)
+	full_name = models.CharField(max_length=255)
+	is_active = models.BooleanField(default=True)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ('student_id',)
+
+	def __str__(self):
+		return f'{self.student_id} - {self.full_name}'
+
+	@classmethod
+	def _next_student_id(cls):
+		prefix = 'STD'
+		for student in cls.objects.order_by('-id').only('student_id'):
+			if student.student_id.startswith(prefix):
+				suffix = student.student_id[len(prefix):]
+				if suffix.isdigit():
+					return f'{prefix}{int(suffix) + 1:04d}'
+		return f'{prefix}0001'
+
+	def save(self, *args, **kwargs):
+		if not self.student_id:
+			candidate = self._next_student_id()
+			while Student.objects.filter(student_id=candidate).exists():
+				prefix = 'STD'
+				next_number = int(candidate[len(prefix):]) + 1
+				candidate = f'{prefix}{next_number:04d}'
+			self.student_id = candidate
+		super().save(*args, **kwargs)
+
+
 class CheckIn(models.Model):
 	tutor = models.ForeignKey(
 		settings.AUTH_USER_MODEL,
@@ -59,6 +93,13 @@ class Schedule(models.Model):
 	subject_topic = models.CharField(max_length=255)
 	scheduled_at = models.DateTimeField()
 	status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_UPCOMING)
+	check_in = models.OneToOneField(
+		CheckIn,
+		on_delete=models.SET_NULL,
+		related_name='schedule',
+		null=True,
+		blank=True,
+	)
 
 	def __str__(self):
 		return f'Schedule #{self.pk} - Tutor {self.tutor_id}'

@@ -1,5 +1,12 @@
 from django.contrib import admin
-from .models import CheckIn, CheckOut, Schedule
+from .models import CheckIn, CheckOut, Schedule, Student
+
+
+@admin.register(Student)
+class StudentAdmin(admin.ModelAdmin):
+	list_display = ('id', 'student_id', 'full_name', 'is_active')
+	search_fields = ('student_id', 'full_name')
+	list_filter = ('is_active',)
 
 
 @admin.register(CheckIn)

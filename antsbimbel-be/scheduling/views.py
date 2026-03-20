@@ -8,7 +8,7 @@ from rest_framework.authtoken.models import Token
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from .models import CheckIn, Schedule
+from .models import CheckIn, Schedule, Student
 from .permissions import AttendancePermission, IsAdminForUserManagement, SchedulePermission, is_admin, is_tutor
 from .serializers import (
 	CheckInSerializer,
@@ -16,6 +16,7 @@ from .serializers import (
 	LoginSerializer,
 	MessageSerializer,
 	ScheduleSerializer,
+	StudentSerializer,
 	UserSerializer,
 )
 
@@ -68,13 +69,6 @@ LIST_QUERY_PARAMETERS = [
 ]
 
 USER_LIST_QUERY_PARAMETERS = [
-	OpenApiParameter(
-		name='role',
-		description='Filter users by role. Allowed values: admin, tutor.',
-		required=False,
-		type=OpenApiTypes.STR,
-		location=OpenApiParameter.QUERY,
-	),
 	OpenApiParameter(
 		name='page',
 		description='Page number.',
@@ -152,24 +146,24 @@ class UserViewSet(viewsets.ModelViewSet):
 	permission_classes = [IsAuthenticated, IsAdminForUserManagement]
 	pagination_class = StandardResultsSetPagination
 
+	def get_queryset(self):
+		# User management is intended for tutor accounts only.
+		return super().get_queryset().filter(is_staff=False, is_superuser=False)
+
 	@extend_schema(parameters=USER_LIST_QUERY_PARAMETERS)
 	def list(self, request, *args, **kwargs):
 		return super().list(request, *args, **kwargs)
 
-	def get_queryset(self):
-		queryset = super().get_queryset()
-		role = self.request.query_params.get('role')
 
-		if role == 'admin':
-			return queryset.filter(is_staff=True)
+class StudentViewSet(viewsets.ModelViewSet):
+	queryset = Student.objects.all().order_by('student_id')
+	serializer_class = StudentSerializer
+	permission_classes = [IsAuthenticated, IsAdminForUserManagement]
+	pagination_class = StandardResultsSetPagination
 
-		if role == 'tutor':
-			return queryset.filter(is_staff=False)
-
-		if role:
-			raise ValidationError({'role': "Invalid role. Allowed values are 'admin' and 'tutor'."})
-
-		return queryset
+	@extend_schema(parameters=USER_LIST_QUERY_PARAMETERS)
+	def list(self, request, *args, **kwargs):
+		return super().list(request, *args, **kwargs)
 
 
 class AttendanceViewSet(viewsets.ModelViewSet):
@@ -230,7 +224,7 @@ class AttendanceViewSet(viewsets.ModelViewSet):
 
 
 class ScheduleViewSet(viewsets.ModelViewSet):
-	queryset = Schedule.objects.select_related('tutor').all().order_by('-scheduled_at')
+	queryset = Schedule.objects.select_related('tutor', 'check_in', 'check_in__check_out').all().order_by('-scheduled_at')
 	serializer_class = ScheduleSerializer
 	permission_classes = [IsAuthenticated, SchedulePermission]
 	pagination_class = StandardResultsSetPagination
