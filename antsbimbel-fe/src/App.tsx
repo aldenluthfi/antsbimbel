@@ -3,21 +3,29 @@ import {
   CalendarCheck,
   CalendarClock,
   CalendarDays,
-  Camera,
+  ChevronLeft,
+  ChevronRight,
   Check,
   ChevronsUpDown,
-  ClipboardList,
   LogOut,
   MapPin,
   Pencil,
-  ShieldUser,
   Trash2,
   UserRound,
 } from "lucide-react"
 import { format } from "date-fns"
 
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { Calendar } from "@/components/ui/calendar"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
@@ -31,33 +39,129 @@ import {
   type ApiUser,
   attendanceApi,
   authApi,
-  type Attendance,
   type DateFilters,
   DEFAULT_FILTERS,
   parseApiError,
   schedulesApi,
   type Schedule,
+  type ScheduleSortBy,
+  type ScheduleStatusFilter,
   type Session,
+  type SortOrder,
   studentsApi,
   type Student,
   usersApi,
 } from "@/lib/api"
 import { cn } from "@/lib/utils"
+import { type DateRange } from "react-day-picker"
 
-type DashboardTab = "users" | "students" | "schedules" | "attendance"
+type DashboardTab = "users" | "students" | "schedules"
 type CalendarMode = "month" | "week"
 
 type CalendarItem = {
   id: string
-  title: string
-  subtitle: string
+  studentName: string
+  tutorName: string
+  statusLabel: string
+  statusDotClassName: string
   date: Date
+  schedule?: Schedule
 }
 
 const SESSION_STORAGE_KEY = "antsbimbel_session"
 
 function formatDateTime(isoDate: string): string {
   return new Date(isoDate).toLocaleString()
+}
+
+function displayStudentName(schedule: Schedule): string {
+  return schedule.student_name?.trim() || schedule.student_id
+}
+
+function isSchedulePast(schedule: Schedule): boolean {
+  const scheduledTime = new Date(schedule.scheduled_at)
+  if (Number.isNaN(scheduledTime.getTime())) {
+    return false
+  }
+
+  return scheduledTime.getTime() < Date.now()
+}
+
+function getScheduleStatusPresentation(schedule: Schedule): {
+  label: string
+  className: string
+} {
+  if (schedule.status === "upcoming" && !schedule.check_in_detail) {
+    const isPast = isSchedulePast(schedule)
+
+    return {
+      label: isPast ? "Need check in" : "Upcoming",
+      className: isPast
+        ? "bg-red-100 text-red-700 border-red-200"
+        : "bg-sky-100 text-sky-700 border-sky-200",
+    }
+  }
+
+  if (schedule.status === "upcoming" && !schedule.check_out_detail) {
+    const isPast = isSchedulePast(schedule)
+
+    return {
+      label: isPast ? "Need check out" : "Upcoming",
+      className: isPast
+        ? "bg-red-100 text-red-700 border-red-200"
+        : "bg-sky-100 text-sky-700 border-sky-200",
+    }
+  }
+
+  if (schedule.status === "cancelled") {
+    return {
+      label: "Cancelled",
+      className: "bg-zinc-100 text-zinc-700 border-zinc-200",
+    }
+  }
+
+  if (schedule.status === "rescheduled") {
+    return {
+      label: "Rescheduled",
+      className: "bg-amber-100 text-amber-700 border-amber-200",
+    }
+  }
+
+  if (schedule.status === "done") {
+    return {
+      label: "Done",
+      className: "bg-emerald-100 text-emerald-700 border-emerald-200",
+    }
+  }
+
+  return {
+    label: "Upcoming",
+    className: "bg-sky-100 text-sky-700 border-sky-200",
+  }
+}
+
+function getScheduleStatusDotClass(schedule: Schedule): string {
+  if (schedule.status === "upcoming" && (!schedule.check_in_detail || !schedule.check_out_detail)) {
+    return isSchedulePast(schedule) ? "bg-red-500" : "bg-sky-500"
+  }
+
+  if (schedule.status === "upcoming") {
+    return "bg-sky-500"
+  }
+
+  if (schedule.status === "cancelled") {
+    return "bg-zinc-500"
+  }
+
+  if (schedule.status === "rescheduled") {
+    return "bg-amber-500"
+  }
+
+  if (schedule.status === "done") {
+    return "bg-emerald-500"
+  }
+
+  return "bg-sky-500"
 }
 
 function toDateInputValue(isoDate: string): string {
@@ -118,6 +222,25 @@ function sameDate(a: Date, b: Date): boolean {
     a.getMonth() === b.getMonth() &&
     a.getDate() === b.getDate()
   )
+}
+
+function buildLocationSearchUrl(location: string): string {
+  const normalized = location.trim()
+  if (!normalized) {
+    return "https://www.google.com"
+  }
+
+  const coordinatesMatch = normalized.match(
+    /^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/
+  )
+
+  if (coordinatesMatch) {
+    const latitude = coordinatesMatch[1]
+    const longitude = coordinatesMatch[2]
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${latitude},${longitude}`)}`
+  }
+
+  return `https://www.google.com/search?q=${encodeURIComponent(normalized)}`
 }
 
 function LoginPage({ onLogin }: { onLogin: (session: Session) => void }) {
@@ -407,85 +530,214 @@ function DatePickerInput({
   )
 }
 
+function DateRangePickerInput({
+  startDate,
+  endDate,
+  onChange,
+}: {
+  startDate: string
+  endDate: string
+  onChange: (next: { startDate: string; endDate: string }) => void
+}) {
+  const [isDesktop, setIsDesktop] = useState(() => {
+    if (typeof window === "undefined") {
+      return true
+    }
+    return window.matchMedia("(min-width: 768px)").matches
+  })
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return
+    }
+
+    const mediaQuery = window.matchMedia("(min-width: 768px)")
+    const onChangeMedia = (event: MediaQueryListEvent) => {
+      setIsDesktop(event.matches)
+    }
+
+    setIsDesktop(mediaQuery.matches)
+    mediaQuery.addEventListener("change", onChangeMedia)
+    return () => mediaQuery.removeEventListener("change", onChangeMedia)
+  }, [])
+
+  const selectedRange: DateRange | undefined = startDate
+    ? {
+        from: new Date(`${startDate}T00:00:00`),
+        to: endDate ? new Date(`${endDate}T00:00:00`) : undefined,
+      }
+    : undefined
+
+  const label = selectedRange?.from
+    ? selectedRange.to
+      ? `${format(selectedRange.from, "LLL dd, y")} - ${format(selectedRange.to, "LLL dd, y")}`
+      : format(selectedRange.from, "LLL dd, y")
+    : "Select date range"
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          className={cn(
+            "h-9 w-full justify-start text-left font-normal",
+            !selectedRange?.from && "text-muted-foreground"
+          )}
+        >
+          <CalendarDays className="mr-2 size-4" />
+          {label}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0" align="start">
+        <Calendar
+          mode="range"
+          defaultMonth={selectedRange?.from}
+          selected={selectedRange}
+          onSelect={(nextRange) =>
+            onChange({
+              startDate: nextRange?.from ? format(nextRange.from, "yyyy-MM-dd") : "",
+              endDate: nextRange?.to ? format(nextRange.to, "yyyy-MM-dd") : "",
+            })
+          }
+          numberOfMonths={isDesktop ? 2 : 1}
+          initialFocus
+        />
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 function DateFilterPanel({
   value,
   onChange,
   showTutor,
-  lockedTutorId,
   tutors,
   students,
   canPickStudent,
+  status,
+  onStatusChange,
+  sortBy,
+  onSortByChange,
+  sortOrder,
+  onSortOrderChange,
 }: {
   value: DateFilters
   onChange: (next: DateFilters) => void
   showTutor: boolean
-  lockedTutorId?: number
   tutors: ApiUser[]
   students?: Student[]
   canPickStudent?: boolean
+  status: ScheduleStatusFilter
+  onStatusChange: (next: ScheduleStatusFilter) => void
+  sortBy: ScheduleSortBy
+  onSortByChange: (next: ScheduleSortBy) => void
+  sortOrder: SortOrder
+  onSortOrderChange: (next: SortOrder) => void
 }) {
+  const filterGridColumnsClass = showTutor ? "md:grid-cols-4" : "md:grid-cols-3"
+
   return (
-    <div className="grid gap-3 rounded-2xl border border-border/70 bg-background/70 p-3 md:grid-cols-4">
-      {showTutor ? (
-        <label className="space-y-1 text-sm">
-          <span className="font-medium">Tutor ID</span>
-          <TutorCombobox
-            tutors={tutors}
-            value={value.tutorId}
-            onChange={(nextTutorId) => onChange({ ...value, tutorId: nextTutorId })}
-            placeholder="Select tutor"
-          />
-        </label>
-      ) : (
-        <label className="space-y-1 text-sm">
-          <span className="font-medium">Tutor ID</span>
-          <Input
-            disabled
-            value={String(lockedTutorId ?? "")}
-            className="h-9 w-full bg-muted"
-          />
-        </label>
-      )}
+    <div className="space-y-3 rounded-2xl border border-border/70 bg-background/70 p-3">
+      <div className="space-y-3 rounded-xl border border-border/70 bg-card/70 p-3">
+        <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+          Filters
+        </p>
+        <div className={cn("grid gap-3", filterGridColumnsClass)}>
+          {showTutor ? (
+            <label className="space-y-1 text-sm">
+              <span className="font-medium">Tutor ID</span>
+              <TutorCombobox
+                tutors={tutors}
+                value={value.tutorId}
+                onChange={(nextTutorId) => onChange({ ...value, tutorId: nextTutorId })}
+                placeholder="Select tutor"
+              />
+            </label>
+          ) : null}
 
-      {canPickStudent ? (
-        <label className="space-y-1 text-sm">
-          <span className="font-medium">Student ID</span>
-          <StudentCombobox
-            students={students ?? []}
-            value={value.studentId}
-            onChange={(nextStudentId) => onChange({ ...value, studentId: nextStudentId })}
-            placeholder="Select student"
-          />
-        </label>
-      ) : (
-        <label className="space-y-1 text-sm">
-          <span className="font-medium">Student ID</span>
-          <input
-            value={value.studentId}
-            onChange={(event) => onChange({ ...value, studentId: event.target.value })}
-            className="h-9 w-full rounded-lg border border-border bg-background px-3 text-sm"
-            placeholder="e.g. STD001"
-          />
-        </label>
-      )}
+          {canPickStudent ? (
+            <label className="space-y-1 text-sm">
+              <span className="font-medium">Student ID</span>
+              <StudentCombobox
+                students={students ?? []}
+                value={value.studentId}
+                onChange={(nextStudentId) => onChange({ ...value, studentId: nextStudentId })}
+                placeholder="Select student"
+              />
+            </label>
+          ) : (
+            <label className="space-y-1 text-sm">
+              <span className="font-medium">Student ID</span>
+              <input
+                value={value.studentId}
+                onChange={(event) => onChange({ ...value, studentId: event.target.value })}
+                className="h-9 w-full rounded-lg border border-border bg-background px-3 text-sm"
+                placeholder="e.g. STD001"
+              />
+            </label>
+          )}
 
-      <label className="space-y-1 text-sm">
-        <span className="font-medium">Start date</span>
-        <DatePickerInput
-          value={value.startDate}
-          onChange={(nextDate) => onChange({ ...value, startDate: nextDate })}
-          placeholder="Select start date"
-        />
-      </label>
+          <label className="space-y-1 text-sm">
+            <span className="font-medium">Date range</span>
+            <DateRangePickerInput
+              startDate={value.startDate}
+              endDate={value.endDate}
+              onChange={({ startDate, endDate }) => onChange({ ...value, startDate, endDate })}
+            />
+          </label>
 
-      <label className="space-y-1 text-sm">
-        <span className="font-medium">End date</span>
-        <DatePickerInput
-          value={value.endDate}
-          onChange={(nextDate) => onChange({ ...value, endDate: nextDate })}
-          placeholder="Select end date"
-        />
-      </label>
+          <label className="space-y-1 text-sm">
+            <span className="font-medium">Status</span>
+            <Select value={status || "all"} onValueChange={(next) => onStatusChange(next === "all" ? "" : (next as ScheduleStatusFilter))}>
+              <SelectTrigger className="h-9 w-full">
+                <SelectValue placeholder="All status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All status</SelectItem>
+                <SelectItem value="upcoming">Upcoming</SelectItem>
+                <SelectItem value="done">Done</SelectItem>
+                <SelectItem value="cancelled">Cancelled</SelectItem>
+                <SelectItem value="rescheduled">Rescheduled</SelectItem>
+              </SelectContent>
+            </Select>
+          </label>
+        </div>
+      </div>
+
+      <div className="space-y-3 rounded-xl border border-border/70 bg-card/70 p-3">
+        <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+          Sort
+        </p>
+        <div className="grid gap-3 md:grid-cols-2">
+          <label className="space-y-1 text-sm">
+            <span className="font-medium">Sort by</span>
+            <Select value={sortBy} onValueChange={(next) => onSortByChange(next as ScheduleSortBy)}>
+              <SelectTrigger className="h-9 w-full">
+                <SelectValue placeholder="Select sorting" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="id">ID</SelectItem>
+                <SelectItem value="scheduled_at">Schedule datetime</SelectItem>
+                <SelectItem value="status">Status</SelectItem>
+              </SelectContent>
+            </Select>
+          </label>
+
+          <label className="space-y-1 text-sm">
+            <span className="font-medium">Order</span>
+            <Select value={sortOrder} onValueChange={(next) => onSortOrderChange(next as SortOrder)}>
+              <SelectTrigger className="h-9 w-full">
+                <SelectValue placeholder="Select order" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="asc">Ascending</SelectItem>
+                <SelectItem value="desc">Descending</SelectItem>
+              </SelectContent>
+            </Select>
+          </label>
+        </div>
+      </div>
     </div>
   )
 }
@@ -503,26 +755,30 @@ function Pagination({
 }) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   return (
-    <div className="flex items-center justify-between gap-3 text-sm">
+    <div className="flex flex-col gap-3 text-sm sm:flex-row sm:items-center sm:justify-between">
       <p className="text-muted-foreground">
         Page {page} / {totalPages} ({total} records)
       </p>
-      <div className="flex gap-2">
+      <div className="flex w-full gap-2 sm:w-auto">
         <Button
           variant="outline"
           size="sm"
           disabled={page <= 1}
+          className="flex-1 sm:flex-none"
           onClick={() => onPageChange(Math.max(1, page - 1))}
+          aria-label="Previous page"
         >
-          Previous
+          <ChevronLeft className="size-4" />
         </Button>
         <Button
           variant="outline"
           size="sm"
           disabled={page >= totalPages}
+          className="flex-1 sm:flex-none"
           onClick={() => onPageChange(Math.min(totalPages, page + 1))}
+          aria-label="Next page"
         >
-          Next
+          <ChevronRight className="size-4" />
         </Button>
       </div>
     </div>
@@ -532,9 +788,11 @@ function Pagination({
 function CalendarBoard({
   title,
   items,
+  onItemClick,
 }: {
   title: string
   items: CalendarItem[]
+  onItemClick?: (item: CalendarItem) => void
 }) {
   const [mode, setMode] = useState<CalendarMode>("month")
   const [cursorDate, setCursorDate] = useState(new Date())
@@ -572,23 +830,29 @@ function CalendarBoard({
 
   return (
     <section className="space-y-3 rounded-2xl border border-border/70 bg-background/70 p-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h4 className="font-semibold">{title}</h4>
-        <div className="flex flex-wrap gap-2">
+      </div>
+
+      <div className="flex gap-2 flex-col sm:flex-row justify-x-between w-full">
+        <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:flex-wrap justify-start">
           <Button size="sm" variant={mode === "month" ? "default" : "outline"} onClick={() => setMode("month")}>
             Month
           </Button>
           <Button size="sm" variant={mode === "week" ? "default" : "outline"} onClick={() => setMode("week")}>
             Week
           </Button>
-          <Button size="sm" variant="outline" onClick={() => move("prev")}>
-            Prev
+        </div>
+
+        <div className="flex w-max items-center gap-2 mx-auto sm:w-full justify-end">
+          <Button size="sm" variant="outline" onClick={() => move("prev")} aria-label="Previous period">
+            <ChevronLeft className="size-4" />
           </Button>
-          <Button size="sm" variant="outline" onClick={() => setCursorDate(new Date())}>
+          <Button size="sm" variant="outline" onClick={() => setCursorDate(new Date())} className="px-4">
             Today
           </Button>
-          <Button size="sm" variant="outline" onClick={() => move("next")}>
-            Next
+          <Button size="sm" variant="outline" onClick={() => move("next")} aria-label="Next period">
+            <ChevronRight className="size-4" />
           </Button>
         </div>
       </div>
@@ -599,7 +863,7 @@ function CalendarBoard({
           : `${visibleRange.start.toLocaleDateString()} - ${visibleRange.end.toLocaleDateString()}`}
       </p>
 
-      <div className="grid grid-cols-7 gap-2 text-xs font-medium text-muted-foreground">
+      <div className="hidden grid-cols-7 gap-2 text-xs font-medium text-muted-foreground md:grid">
         {weekDays.map((day) => (
           <div key={day} className="rounded-md bg-muted px-2 py-1 text-center">
             {day}
@@ -608,36 +872,51 @@ function CalendarBoard({
       </div>
 
       {mode === "month" ? (
-        <div className="grid grid-cols-7 gap-2">
-          {Array.from({ length: 42 }).map((_, index) => {
-            const day = new Date(visibleRange.start)
-            day.setDate(day.getDate() + index)
-            const dayItems = visibleItems.filter((item) => sameDate(item.date, day))
-            const inCurrentMonth = day.getMonth() === cursorDate.getMonth()
+        <div className="overflow-x-auto pb-1">
+          <div className="grid min-w-180 grid-cols-7 gap-2">
+            {Array.from({ length: 42 }).map((_, index) => {
+              const day = new Date(visibleRange.start)
+              day.setDate(day.getDate() + index)
+              const dayItems = visibleItems.filter((item) => sameDate(item.date, day))
+              const inCurrentMonth = day.getMonth() === cursorDate.getMonth()
 
-            return (
-              <div
-                key={day.toISOString()}
-                className={cn(
-                  "min-h-24 rounded-lg border border-border p-2",
-                  inCurrentMonth ? "bg-card" : "bg-muted/40"
-                )}
-              >
-                <p className="mb-1 text-xs font-semibold">{day.getDate()}</p>
-                <div className="space-y-1">
-                  {dayItems.slice(0, 3).map((item) => (
-                    <div key={item.id} className="rounded-md bg-primary/10 px-1.5 py-1 text-[11px] leading-tight">
-                      <p className="font-medium">{item.title}</p>
-                      <p className="text-muted-foreground">{item.subtitle}</p>
-                    </div>
-                  ))}
-                  {dayItems.length > 3 ? (
-                    <p className="text-[11px] text-muted-foreground">+{dayItems.length - 3} more</p>
-                  ) : null}
+              return (
+                <div
+                  key={day.toISOString()}
+                  className={cn(
+                    "min-h-24 rounded-lg border border-border p-2",
+                    inCurrentMonth ? "bg-card" : "bg-muted/40"
+                  )}
+                >
+                  <p className="mb-1 text-xs font-semibold">{day.getDate()}</p>
+                  <div className="space-y-1">
+                    {dayItems.slice(0, 3).map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => onItemClick?.(item)}
+                        className={cn(
+                          "w-full rounded-md border border-primary/20 bg-primary/10 px-1.5 py-1 text-left text-[11px] leading-tight",
+                          onItemClick ? "cursor-pointer hover:bg-primary/20" : "cursor-default"
+                        )}
+                      >
+                        <p className="font-medium">{item.studentName}</p>
+                        <p className="text-muted-foreground">{item.tutorName}</p>
+                        <span
+                          className={cn("mt-1 inline-block size-2.5 rounded-full", item.statusDotClassName)}
+                          title={item.statusLabel}
+                          aria-label={item.statusLabel}
+                        />
+                      </button>
+                    ))}
+                    {dayItems.length > 3 ? (
+                      <p className="text-[11px] text-muted-foreground">+{dayItems.length - 3} more</p>
+                    ) : null}
+                  </div>
                 </div>
-              </div>
-            )
-          })}
+              )
+            })}
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-2 md:grid-cols-7">
@@ -656,10 +935,23 @@ function CalendarBoard({
                     <p className="text-[11px] text-muted-foreground">No events</p>
                   ) : null}
                   {dayItems.map((item) => (
-                    <div key={item.id} className="rounded-md bg-primary/10 px-1.5 py-1 text-[11px] leading-tight">
-                      <p className="font-medium">{item.title}</p>
-                      <p className="text-muted-foreground">{item.subtitle}</p>
-                    </div>
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => onItemClick?.(item)}
+                      className={cn(
+                        "w-full rounded-md border px-1.5 py-1 text-left text-[11px] leading-tight border-primary/20 bg-primary/10",
+                        onItemClick ? "cursor-pointer hover:bg-primary/20" : "cursor-default"
+                      )}
+                    >
+                      <p className="font-medium">{item.studentName}</p>
+                      <p className="text-muted-foreground">{item.tutorName}</p>
+                      <span
+                        className={cn("mt-1 inline-block size-2.5 rounded-full", item.statusDotClassName)}
+                        title={item.statusLabel}
+                        aria-label={item.statusLabel}
+                      />
+                    </button>
                   ))}
                 </div>
               </div>
@@ -933,7 +1225,41 @@ function UsersSection({ token }: { token: string }) {
       {error ? <p className="text-sm text-red-500">{error}</p> : null}
       {loading ? <p className="text-sm text-muted-foreground">Loading users...</p> : null}
 
-      <div className="overflow-x-auto rounded-xl border border-border">
+      <div className="space-y-3 md:hidden">
+        {users.map((user) => (
+          <article key={user.id} className="rounded-xl border border-border bg-background p-3 text-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="font-semibold">{user.username}</p>
+                <p className="text-xs text-muted-foreground">#{user.id}</p>
+              </div>
+              <Badge variant="outline" className="capitalize">
+                {user.role}
+              </Badge>
+            </div>
+            <p className="mt-2 text-muted-foreground">{user.first_name} {user.last_name}</p>
+            <p className="mt-1 break-all text-muted-foreground">{user.email || "-"}</p>
+            <p className="mt-1 text-muted-foreground">Active: {user.is_active ? "Yes" : "No"}</p>
+            <div className="mt-3 flex gap-2">
+              <Button className="flex-1" size="sm" variant="outline" onClick={() => openEditUser(user)}>
+                <Pencil className="size-4" />
+                Edit
+              </Button>
+              <Button className="flex-1" size="sm" variant="destructive" onClick={() => deleteUser(user)}>
+                <Trash2 className="size-4" />
+                Delete
+              </Button>
+            </div>
+          </article>
+        ))}
+        {users.length === 0 && !loading ? (
+          <p className="rounded-xl border border-border px-3 py-5 text-center text-sm text-muted-foreground">
+            No users found.
+          </p>
+        ) : null}
+      </div>
+
+      <div className="hidden overflow-x-auto rounded-xl border border-border md:block">
         <table className="min-w-full text-sm">
           <thead className="bg-muted/70 text-left">
             <tr>
@@ -1163,7 +1489,32 @@ function StudentsSection({ token }: { token: string }) {
       {error ? <p className="text-sm text-red-500">{error}</p> : null}
       {loading ? <p className="text-sm text-muted-foreground">Loading students...</p> : null}
 
-      <div className="overflow-x-auto rounded-xl border border-border">
+      <div className="space-y-3 md:hidden">
+        {students.map((student) => (
+          <article key={student.id} className="rounded-xl border border-border bg-background p-3 text-sm">
+            <p className="font-semibold">{student.full_name}</p>
+            <p className="text-xs text-muted-foreground">{student.student_id} • #{student.id}</p>
+            <p className="mt-2 text-muted-foreground">Active: {student.is_active ? "Yes" : "No"}</p>
+            <div className="mt-3 flex gap-2">
+              <Button className="flex-1" size="sm" variant="outline" onClick={() => openEditStudent(student)}>
+                <Pencil className="size-4" />
+                Edit
+              </Button>
+              <Button className="flex-1" size="sm" variant="destructive" onClick={() => deleteStudent(student)}>
+                <Trash2 className="size-4" />
+                Delete
+              </Button>
+            </div>
+          </article>
+        ))}
+        {students.length === 0 && !loading ? (
+          <p className="rounded-xl border border-border px-3 py-5 text-center text-sm text-muted-foreground">
+            No students found.
+          </p>
+        ) : null}
+      </div>
+
+      <div className="hidden overflow-x-auto rounded-xl border border-border md:block">
         <table className="min-w-full text-sm">
           <thead className="bg-muted/70 text-left">
             <tr>
@@ -1227,6 +1578,9 @@ function SchedulesSection({
   const [students, setStudents] = useState<Student[]>([])
   const [schedules, setSchedules] = useState<Schedule[]>([])
   const [calendarSchedules, setCalendarSchedules] = useState<Schedule[]>([])
+  const [statusFilter, setStatusFilter] = useState<ScheduleStatusFilter>("")
+  const [sortBy, setSortBy] = useState<ScheduleSortBy>("scheduled_at")
+  const [sortOrder, setSortOrder] = useState<SortOrder>("desc")
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
@@ -1239,6 +1593,10 @@ function SchedulesSection({
   const [capturedPhoto, setCapturedPhoto] = useState<File | null>(null)
   const [isSubmittingCapture, setIsSubmittingCapture] = useState(false)
   const [capturedPhotoUrl, setCapturedPhotoUrl] = useState<string | null>(null)
+  const [detailDialogState, setDetailDialogState] = useState<{
+    schedule: Schedule
+    mode: "check-in" | "check-out" | "calendar"
+  } | null>(null)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const cameraStreamRef = useRef<MediaStream | null>(null)
@@ -1261,8 +1619,28 @@ function SchedulesSection({
     setError("")
 
     try {
-      const listResponse = await schedulesApi.list(filters, page, pageSize, token)
-      const calendarResponse = await schedulesApi.list(filters, 1, 100, token)
+      const listResponse = await schedulesApi.list(
+        {
+          filters,
+          status: statusFilter,
+          sortBy,
+          sortOrder,
+          page,
+          pageSize,
+        },
+        token
+      )
+      const calendarResponse = await schedulesApi.list(
+        {
+          filters,
+          status: statusFilter,
+          sortBy,
+          sortOrder,
+          page: 1,
+          pageSize: 100,
+        },
+        token
+      )
 
       setSchedules(listResponse.results)
       setTotal(listResponse.count)
@@ -1277,7 +1655,7 @@ function SchedulesSection({
   useEffect(() => {
     void fetchSchedules()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, filters])
+  }, [page, filters, statusFilter, sortBy, sortOrder])
 
   useEffect(() => {
     if (tutorId) {
@@ -1297,10 +1675,6 @@ function SchedulesSection({
   }, [token, tutorId])
 
   useEffect(() => {
-    if (!canManage) {
-      return
-    }
-
     const fetchStudents = async () => {
       try {
         const response = await studentsApi.list(token, 1, 100)
@@ -1311,7 +1685,7 @@ function SchedulesSection({
     }
 
     void fetchStudents()
-  }, [canManage, token])
+  }, [token])
 
   useEffect(() => {
     return () => {
@@ -1601,27 +1975,52 @@ function SchedulesSection({
     }
   }
 
+  const openDetailDialog = (schedule: Schedule, mode: "check-in" | "check-out" | "calendar") => {
+    setDetailDialogState({ schedule, mode })
+  }
+
+  const closeDetailDialog = () => {
+    setDetailDialogState(null)
+  }
+
   const calendarItems = useMemo<CalendarItem[]>(
     () =>
-      calendarSchedules.map((schedule) => ({
-        id: `schedule-${schedule.id}`,
-        title: `${schedule.student_id} • ${schedule.subject_topic}`,
-        subtitle: `Tutor ${schedule.tutor_id} • ${schedule.status} • CI ${schedule.check_in_id ? "exist" : "none"} • CO ${schedule.check_out_id ? "exist" : "none"}`,
-        date: new Date(schedule.scheduled_at),
-      })),
+      calendarSchedules.map((schedule) => {
+        const statusPresentation = getScheduleStatusPresentation(schedule)
+        return {
+          id: `schedule-${schedule.id}`,
+          studentName: displayStudentName(schedule),
+          tutorName: schedule.tutor_name,
+          statusLabel: statusPresentation.label,
+          statusDotClassName: getScheduleStatusDotClass(schedule),
+          date: new Date(schedule.scheduled_at),
+          schedule,
+        }
+      }),
     [calendarSchedules]
   )
 
   return (
     <section className="space-y-4 rounded-2xl border border-border/70 bg-card/70 p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h3 className="text-lg font-semibold">Schedules</h3>
-        <div className="flex gap-2">
-          <Button size="sm" variant="outline" onClick={() => setFilters(DEFAULT_FILTERS)}>
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+          <Button
+            size="sm"
+            variant="outline"
+            className="w-full sm:w-auto"
+            onClick={() => {
+              setFilters(tutorId ? { ...DEFAULT_FILTERS, tutorId: String(tutorId) } : DEFAULT_FILTERS)
+              setStatusFilter("")
+              setSortBy("scheduled_at")
+              setSortOrder("desc")
+              setPage(1)
+            }}
+          >
             Reset filters
           </Button>
           {canManage ? (
-            <Button size="sm" onClick={openCreate}>
+            <Button size="sm" className="w-full sm:w-auto" onClick={openCreate}>
               Create schedule
             </Button>
           ) : null}
@@ -1635,10 +2034,24 @@ function SchedulesSection({
           setFilters(tutorId ? { ...next, tutorId: String(tutorId) } : next)
         }}
         showTutor={!tutorId}
-        lockedTutorId={tutorId}
         tutors={tutors}
         students={students}
-        canPickStudent={canManage}
+        canPickStudent
+        status={statusFilter}
+        onStatusChange={(next) => {
+          setPage(1)
+          setStatusFilter(next)
+        }}
+        sortBy={sortBy}
+        onSortByChange={(next) => {
+          setPage(1)
+          setSortBy(next)
+        }}
+        sortOrder={sortOrder}
+        onSortOrderChange={(next) => {
+          setPage(1)
+          setSortOrder(next)
+        }}
       />
 
       {error ? <p className="text-sm text-red-500">{error}</p> : null}
@@ -1724,18 +2137,99 @@ function SchedulesSection({
               </SelectContent>
             </Select>
           </label>
-          <div className="flex gap-2 md:col-span-2">
-            <Button type="submit" disabled={isSaving}>
+          <div className="flex flex-col gap-2 md:col-span-2 sm:flex-row">
+            <Button type="submit" disabled={isSaving} className="w-full sm:w-auto">
               {isSaving ? "Saving..." : editing ? "Update schedule" : "Create schedule"}
             </Button>
-            <Button type="button" variant="outline" onClick={() => setIsFormOpen(false)}>
+            <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => setIsFormOpen(false)}>
               Cancel
             </Button>
           </div>
         </form>
       ) : null}
 
-      <div className="overflow-x-auto rounded-xl border border-border">
+      <div className="space-y-3 md:hidden">
+        {schedules.map((schedule) => {
+          const statusPresentation = getScheduleStatusPresentation(schedule)
+          return (
+            <article key={schedule.id} className="rounded-xl border border-border bg-background p-3 text-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-semibold">Schedule #{schedule.id}</p>
+                  <p className="text-xs text-muted-foreground">{formatDateTime(schedule.scheduled_at)}</p>
+                </div>
+                <Badge variant="outline" className={statusPresentation.className}>
+                  {statusPresentation.label}
+                </Badge>
+              </div>
+              <p className="mt-2 text-muted-foreground">Tutor: {schedule.tutor_name}</p>
+              <p className="text-muted-foreground">Student: {displayStudentName(schedule)}</p>
+              <p className="text-muted-foreground">Topic: {schedule.subject_topic}</p>
+
+              <div className="mt-3 grid gap-2">
+                {schedule.check_in_detail ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => openDetailDialog(schedule, "check-in")}
+                    className="w-full"
+                  >
+                    View check in details
+                  </Button>
+                ) : canManage ? (
+                  <p className="text-xs text-muted-foreground">Check in: Not yet</p>
+                ) : (
+                  <Button size="sm" onClick={() => void openCaptureDialog("check-in", schedule)} className="w-full">
+                    Check in
+                  </Button>
+                )}
+
+                {schedule.check_out_detail ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => openDetailDialog(schedule, "check-out")}
+                    className="w-full"
+                  >
+                    View check out details
+                  </Button>
+                ) : canManage ? (
+                  <p className="text-xs text-muted-foreground">Check out: Not yet</p>
+                ) : schedule.check_in_id ? (
+                  <Button size="sm" onClick={() => void openCaptureDialog("check-out", schedule)} className="w-full">
+                    Check out
+                  </Button>
+                ) : (
+                  <p className="text-xs text-muted-foreground">Check out: Check in first</p>
+                )}
+
+                {canManage ? (
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" className="flex-1" onClick={() => openEdit(schedule)}>
+                      Edit
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      className="flex-1"
+                      onClick={() => deleteSchedule(schedule.id)}
+                    >
+                      Delete
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            </article>
+          )
+        })}
+        {schedules.length === 0 && !loading ? (
+          <p className="rounded-xl border border-border px-3 py-5 text-center text-sm text-muted-foreground">
+            No schedules found.
+          </p>
+        ) : null}
+      </div>
+
+      <div className="hidden overflow-x-auto rounded-xl border border-border md:block">
         <table className="min-w-full text-sm">
           <thead className="bg-muted/70 text-left">
             <tr>
@@ -1754,16 +2248,29 @@ function SchedulesSection({
             {schedules.map((schedule) => (
               <tr key={schedule.id} className="border-t border-border">
                 <td className="px-3 py-2">{schedule.id}</td>
-                <td className="px-3 py-2">{schedule.tutor_id}</td>
-                <td className="px-3 py-2">{schedule.student_id}</td>
+                <td className="px-3 py-2">{schedule.tutor_name}</td>
+                <td className="px-3 py-2">{displayStudentName(schedule)}</td>
                 <td className="px-3 py-2">{schedule.subject_topic}</td>
                 <td className="px-3 py-2">{formatDateTime(schedule.scheduled_at)}</td>
-                <td className="px-3 py-2 capitalize">{schedule.status}</td>
                 <td className="px-3 py-2">
-                  {canManage ? (
-                    schedule.check_in_id ? "Exist" : "Not yet"
-                  ) : schedule.check_in_id ? (
-                    "Exist"
+                  <Badge
+                    variant="outline"
+                    className={getScheduleStatusPresentation(schedule).className}
+                  >
+                    {getScheduleStatusPresentation(schedule).label}
+                  </Badge>
+                </td>
+                <td className="px-3 py-2">
+                  {schedule.check_in_detail ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => openDetailDialog(schedule, "check-in")}
+                    >
+                      View details
+                    </Button>
+                  ) : canManage ? (
+                    "Not yet"
                   ) : (
                     <Button size="sm" onClick={() => void openCaptureDialog("check-in", schedule)}>
                       Check in
@@ -1771,12 +2278,18 @@ function SchedulesSection({
                   )}
                 </td>
                 <td className="px-3 py-2">
-                  {canManage ? (
-                    schedule.check_out_id ? "Exist" : "Not yet"
-                  ) : schedule.check_out_id ? (
-                    "Exist"
+                  {schedule.check_out_detail ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => openDetailDialog(schedule, "check-out")}
+                    >
+                      View details
+                    </Button>
+                  ) : canManage ? (
+                    "Not yet"
                   ) : schedule.check_in_id ? (
-                    <Button size="sm" variant="outline" onClick={() => void openCaptureDialog("check-out", schedule)}>
+                    <Button size="sm" onClick={() => void openCaptureDialog("check-out", schedule)}>
                       Check out
                     </Button>
                   ) : (
@@ -1829,7 +2342,7 @@ function SchedulesSection({
             <div className="space-y-2">
               <video ref={videoRef} autoPlay muted playsInline className="w-full rounded-lg border border-border bg-black/80" />
               <canvas ref={canvasRef} className="hidden" />
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                 <Button type="button" variant="outline" onClick={() => void startCamera()}>
                   Restart camera
                 </Button>
@@ -1854,7 +2367,7 @@ function SchedulesSection({
 
               {captureMode === "check-in" ? (
                 <div className="space-y-2">
-                  <div className="flex gap-2">
+                  <div className="flex flex-col gap-2 sm:flex-row">
                     <Input
                       required
                       value={checkInLocation}
@@ -1869,7 +2382,7 @@ function SchedulesSection({
                 </div>
               ) : null}
 
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                 <Button
                   type="button"
                   disabled={isSubmittingCapture}
@@ -1886,409 +2399,106 @@ function SchedulesSection({
         </section>
       ) : null}
 
-      <Pagination page={page} total={total} pageSize={pageSize} onPageChange={setPage} />
-      <CalendarBoard title="Schedules Calendar" items={calendarItems} />
-    </section>
-  )
-}
+      {detailDialogState ? (
+        <Dialog open onOpenChange={(open) => (!open ? closeDetailDialog() : null)}>
+          <DialogContent className="max-h-[90svh] max-w-2xl overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Attendance details</DialogTitle>
+              <DialogDescription>
+                {detailDialogState.schedule.tutor_name} • {displayStudentName(detailDialogState.schedule)} •{" "}
+                <Badge
+                  variant="outline"
+                  className={getScheduleStatusPresentation(detailDialogState.schedule).className}
+                >
+                  {getScheduleStatusPresentation(detailDialogState.schedule).label}
+                </Badge>
+              </DialogDescription>
+            </DialogHeader>
 
-function AttendanceSection({
-  token,
-  user,
-}: {
-  token: string
-  user: ApiUser
-}) {
-  const [filters, setFilters] = useState<DateFilters>(
-    user.role === "tutor" ? { ...DEFAULT_FILTERS, tutorId: String(user.id) } : DEFAULT_FILTERS
-  )
-  const [tutors, setTutors] = useState<ApiUser[]>([])
-  const [students, setStudents] = useState<Student[]>([])
-  const [tutorSchedules, setTutorSchedules] = useState<Schedule[]>([])
-  const [attendance, setAttendance] = useState<Attendance[]>([])
-  const [calendarAttendance, setCalendarAttendance] = useState<Attendance[]>([])
-  const [page, setPage] = useState(1)
-  const [total, setTotal] = useState(0)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState("")
-
-  const [cameraStatus, setCameraStatus] = useState<"idle" | "granted" | "denied">("idle")
-  const [locationStatus, setLocationStatus] = useState<"idle" | "granted" | "denied">("idle")
-
-  const [checkInScheduleId, setCheckInScheduleId] = useState("")
-  const [checkInStudentId, setCheckInStudentId] = useState("")
-  const [checkInLocation, setCheckInLocation] = useState("")
-  const [checkInPhoto, setCheckInPhoto] = useState<File | null>(null)
-  const [isSubmittingCheckIn, setIsSubmittingCheckIn] = useState(false)
-
-  const [checkoutAttendanceId, setCheckoutAttendanceId] = useState("")
-  const [checkOutPhoto, setCheckOutPhoto] = useState<File | null>(null)
-  const [isSubmittingCheckout, setIsSubmittingCheckout] = useState(false)
-
-  const pageSize = 10
-  const isTutor = user.role === "tutor"
-  const availableTutorSchedules = tutorSchedules.filter((schedule) => schedule.check_in_id === null)
-  const selectedTutorSchedule = tutorSchedules.find(
-    (schedule) => String(schedule.id) === checkInScheduleId
-  )
-
-  const fetchTutorSchedulesForCheckIn = async () => {
-    if (!isTutor) {
-      return
-    }
-
-    try {
-      const response = await schedulesApi.list(
-        { ...DEFAULT_FILTERS, tutorId: String(user.id) },
-        1,
-        100,
-        token
-      )
-      setTutorSchedules(response.results)
-    } catch {
-      setTutorSchedules([])
-    }
-  }
-
-  const fetchAttendance = async () => {
-    setLoading(true)
-    setError("")
-    try {
-      const fixedFilters = isTutor ? { ...filters, tutorId: String(user.id) } : filters
-      const listResponse = await attendanceApi.list(fixedFilters, page, pageSize, token)
-      const calendarResponse = await attendanceApi.list(fixedFilters, 1, 100, token)
-
-      setAttendance(listResponse.results)
-      setTotal(listResponse.count)
-      setCalendarAttendance(calendarResponse.results)
-    } catch (fetchError) {
-      setError(parseApiError(fetchError))
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    void fetchAttendance()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, filters])
-
-  useEffect(() => {
-    if (isTutor) {
-      return
-    }
-
-    const fetchTutors = async () => {
-      try {
-        const response = await usersApi.list(token, 1, 100)
-        setTutors(response.results)
-      } catch {
-        // Fallback to empty options if tutor fetch fails.
-      }
-    }
-
-    void fetchTutors()
-  }, [isTutor, token])
-
-  useEffect(() => {
-    void fetchTutorSchedulesForCheckIn()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isTutor, token, user.id])
-
-  useEffect(() => {
-    if (!selectedTutorSchedule) {
-      setCheckInStudentId("")
-      return
-    }
-
-    setCheckInStudentId(selectedTutorSchedule.student_id)
-  }, [selectedTutorSchedule])
-
-  useEffect(() => {
-    if (isTutor) {
-      return
-    }
-
-    const fetchStudents = async () => {
-      try {
-        const response = await studentsApi.list(token, 1, 100)
-        setStudents(response.results)
-      } catch {
-        // Fallback to empty options if student fetch fails.
-      }
-    }
-
-    void fetchStudents()
-  }, [isTutor, token])
-
-  const askDevicePermissions = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true })
-      stream.getTracks().forEach((track) => track.stop())
-      setCameraStatus("granted")
-    } catch {
-      setCameraStatus("denied")
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setLocationStatus("granted")
-        setCheckInLocation(`${position.coords.latitude}, ${position.coords.longitude}`)
-      },
-      () => {
-        setLocationStatus("denied")
-      }
-    )
-  }
-
-  const submitCheckIn = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (!checkInScheduleId) {
-      setError("Please select a schedule first.")
-      return
-    }
-    if (!checkInPhoto) {
-      setError("Check-in photo is required.")
-      return
-    }
-
-    setError("")
-    setIsSubmittingCheckIn(true)
-
-    const formData = new FormData()
-    formData.append("schedule_id", checkInScheduleId)
-    formData.append("student_id", checkInStudentId)
-    formData.append("check_in_location", checkInLocation)
-    formData.append("check_in_photo", checkInPhoto)
-    formData.append("check_in_time", new Date().toISOString())
-
-    try {
-      await attendanceApi.create(formData, token)
-      setCheckInScheduleId("")
-      setCheckInStudentId("")
-      setCheckInPhoto(null)
-      await fetchTutorSchedulesForCheckIn()
-      await fetchAttendance()
-    } catch (checkInError) {
-      setError(parseApiError(checkInError))
-    } finally {
-      setIsSubmittingCheckIn(false)
-    }
-  }
-
-  const submitCheckOut = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (!checkoutAttendanceId) {
-      setError("Please select a check-in record to check out.")
-      return
-    }
-    if (!checkOutPhoto) {
-      setError("Check-out photo is required.")
-      return
-    }
-
-    setError("")
-    setIsSubmittingCheckout(true)
-
-    const formData = new FormData()
-    formData.append("check_out_time", new Date().toISOString())
-    formData.append("check_out_photo", checkOutPhoto)
-
-    try {
-      await attendanceApi.update(Number(checkoutAttendanceId), formData, token)
-      setCheckoutAttendanceId("")
-      setCheckOutPhoto(null)
-      await fetchAttendance()
-    } catch (checkOutError) {
-      setError(parseApiError(checkOutError))
-    } finally {
-      setIsSubmittingCheckout(false)
-    }
-  }
-
-  const openRecords = attendance.filter((record) => record.check_out_id === null)
-
-  const calendarItems = useMemo<CalendarItem[]>(
-    () =>
-      calendarAttendance.map((record) => ({
-        id: `attendance-${record.check_in_id}`,
-        title: `${record.student_id} • Tutor ${record.tutor_id}`,
-        subtitle: record.check_out_id ? "Checked out" : "Check-in only",
-        date: new Date(record.check_in_time),
-      })),
-    [calendarAttendance]
-  )
-
-  return (
-    <section className="space-y-4 rounded-2xl border border-border/70 bg-card/70 p-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="text-lg font-semibold">Attendance</h3>
-        <Button size="sm" variant="outline" onClick={() => setFilters(DEFAULT_FILTERS)}>
-          Reset filters
-        </Button>
-      </div>
-
-      <DateFilterPanel
-        value={filters}
-        onChange={(next) => {
-          setPage(1)
-          setFilters(isTutor ? { ...next, tutorId: String(user.id) } : next)
-        }}
-        showTutor={!isTutor}
-        lockedTutorId={isTutor ? user.id : undefined}
-        tutors={tutors}
-        students={students}
-        canPickStudent={!isTutor}
-      />
-
-      {isTutor ? (
-        <div className="grid gap-4 md:grid-cols-2">
-          <section className="space-y-3 rounded-xl border border-border bg-background p-3">
-            <h4 className="flex items-center gap-2 font-semibold">
-              <ShieldUser className="size-4" />
-              Device Permissions
-            </h4>
-            <p className="text-sm text-muted-foreground">
-              Tutors should allow camera and location so check-in/check-out records are accepted.
-            </p>
-            <div className="flex flex-wrap gap-2 text-sm">
-              <span className="rounded-full bg-muted px-2 py-1">Camera: {cameraStatus}</span>
-              <span className="rounded-full bg-muted px-2 py-1">Location: {locationStatus}</span>
-            </div>
-            <Button size="sm" variant="outline" onClick={askDevicePermissions}>
-              Request camera + location
-            </Button>
-          </section>
-
-          <form onSubmit={submitCheckIn} className="space-y-3 rounded-xl border border-border bg-background p-3">
-            <h4 className="flex items-center gap-2 font-semibold">
-              <Camera className="size-4" />
-              Check In
-            </h4>
-            <select
-              required
-              value={checkInScheduleId}
-              onChange={(event) => setCheckInScheduleId(event.target.value)}
-              className="h-9 w-full rounded-lg border border-border px-3 text-sm"
-            >
-              <option value="">Select schedule</option>
-              {availableTutorSchedules.map((schedule) => (
-                <option key={schedule.id} value={schedule.id}>
-                  #{schedule.id} | {schedule.student_id} | {formatDateTime(schedule.scheduled_at)}
-                </option>
-              ))}
-            </select>
-            <input
-              required
-              readOnly
-              value={checkInStudentId}
-              placeholder="Student ID"
-              className="h-9 w-full rounded-lg border border-border bg-muted px-3 text-sm"
-            />
-            {availableTutorSchedules.length === 0 ? (
-              <p className="text-xs text-muted-foreground">
-                All schedules already have check-in records, or no schedules are available yet.
-              </p>
+            {detailDialogState.mode === "calendar" ? (
+              <section className="space-y-1 rounded-lg border border-border p-3 text-sm">
+                <p>
+                  <span className="font-medium">Schedule time:</span>{" "}
+                  {formatDateTime(detailDialogState.schedule.scheduled_at)}
+                </p>
+              </section>
             ) : null}
-            <div className="flex gap-2">
-              <input
-                required
-                value={checkInLocation}
-                onChange={(event) => setCheckInLocation(event.target.value)}
-                placeholder="Latitude, Longitude"
-                className="h-9 w-full rounded-lg border border-border px-3 text-sm"
-              />
-              <Button type="button" size="sm" variant="outline" onClick={askDevicePermissions}>
-                <MapPin className="size-4" />
-              </Button>
-            </div>
-            <input
-              required
-              accept="image/*"
-              capture="environment"
-              type="file"
-              onChange={(event) => setCheckInPhoto(event.target.files?.[0] ?? null)}
-              className="w-full text-sm"
-            />
-            <Button disabled={isSubmittingCheckIn} type="submit" className="w-full">
-              {isSubmittingCheckIn ? "Submitting..." : "Create check-in"}
-            </Button>
-          </form>
 
-          <form onSubmit={submitCheckOut} className="space-y-3 rounded-xl border border-border bg-background p-3 md:col-span-2">
-            <h4 className="font-semibold">Check Out</h4>
-            <p className="text-sm text-muted-foreground">
-              Select an open check-in record, then attach a checkout photo.
-            </p>
-            <select
-              required
-              value={checkoutAttendanceId}
-              onChange={(event) => setCheckoutAttendanceId(event.target.value)}
-              className="h-9 w-full rounded-lg border border-border px-3 text-sm"
-            >
-              <option value="">Select open record</option>
-              {openRecords.map((record) => (
-                <option key={record.check_in_id} value={record.check_in_id}>
-                  #{record.check_in_id} | {record.student_id} | {formatDateTime(record.check_in_time)}
-                </option>
-              ))}
-            </select>
-            <input
-              required
-              accept="image/*"
-              capture="environment"
-              type="file"
-              onChange={(event) => setCheckOutPhoto(event.target.files?.[0] ?? null)}
-              className="w-full text-sm"
-            />
-            <Button disabled={isSubmittingCheckout} type="submit" className="w-full md:w-auto">
-              {isSubmittingCheckout ? "Submitting..." : "Submit check-out"}
-            </Button>
-          </form>
-        </div>
+            {detailDialogState.mode !== "check-out" ? (
+              <section className="space-y-2 rounded-lg border border-border p-3">
+                <h4 className="font-semibold">Check in</h4>
+                {detailDialogState.schedule.check_in_detail ? (
+                  <div className="space-y-2 text-sm">
+                    <p>
+                      <span className="font-medium">Time:</span> {formatDateTime(detailDialogState.schedule.check_in_detail.time)}
+                    </p>
+                    <p>
+                      <span className="font-medium">Location:</span>{" "}
+                      <a
+                        href={buildLocationSearchUrl(detailDialogState.schedule.check_in_detail.location)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-primary underline underline-offset-2"
+                      >
+                        {detailDialogState.schedule.check_in_detail.location}
+                      </a>
+                    </p>
+                    {detailDialogState.schedule.check_in_detail.photo ? (
+                      <img
+                        src={detailDialogState.schedule.check_in_detail.photo}
+                        alt="Check in"
+                        className="max-h-80 w-full rounded-lg border border-border object-contain"
+                      />
+                    ) : (
+                      <p className="text-muted-foreground">No check-in photo available.</p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Check-in details are not available yet.</p>
+                )}
+              </section>
+            ) : null}
+
+            {detailDialogState.mode !== "check-in" ? (
+              <section className="space-y-2 rounded-lg border border-border p-3">
+                <h4 className="font-semibold">Check out</h4>
+                {detailDialogState.schedule.check_out_detail ? (
+                  <div className="space-y-2 text-sm">
+                    <p>
+                      <span className="font-medium">Time:</span> {formatDateTime(detailDialogState.schedule.check_out_detail.time)}
+                    </p>
+                    {detailDialogState.schedule.check_out_detail.photo ? (
+                      <img
+                        src={detailDialogState.schedule.check_out_detail.photo}
+                        alt="Check out"
+                        className="max-h-80 w-full rounded-lg border border-border object-contain"
+                      />
+                    ) : (
+                      <p className="text-muted-foreground">No check-out photo available.</p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Check-out details are not available yet.</p>
+                )}
+              </section>
+            ) : null}
+
+            <DialogFooter showCloseButton />
+          </DialogContent>
+        </Dialog>
       ) : null}
 
-      {error ? <p className="text-sm text-red-500">{error}</p> : null}
-      {loading ? <p className="text-sm text-muted-foreground">Loading attendance...</p> : null}
-
-      <div className="overflow-x-auto rounded-xl border border-border">
-        <table className="min-w-full text-sm">
-          <thead className="bg-muted/70 text-left">
-            <tr>
-              <th className="px-3 py-2">Check-in ID</th>
-              <th className="px-3 py-2">Tutor</th>
-              <th className="px-3 py-2">Student</th>
-              <th className="px-3 py-2">Check in time</th>
-              <th className="px-3 py-2">Location</th>
-              <th className="px-3 py-2">Check out</th>
-              <th className="px-3 py-2">Total shift</th>
-            </tr>
-          </thead>
-          <tbody>
-            {attendance.map((record) => (
-              <tr key={record.check_in_id} className="border-t border-border">
-                <td className="px-3 py-2">{record.check_in_id}</td>
-                <td className="px-3 py-2">{record.tutor_id}</td>
-                <td className="px-3 py-2">{record.student_id}</td>
-                <td className="px-3 py-2">{formatDateTime(record.check_in_time)}</td>
-                <td className="px-3 py-2">{record.check_in_location}</td>
-                <td className="px-3 py-2">{record.check_out_id ? `#${record.check_out_id}` : "Pending"}</td>
-                <td className="px-3 py-2">{record.total_shift_time ?? "-"}</td>
-              </tr>
-            ))}
-            {attendance.length === 0 && !loading ? (
-              <tr>
-                <td className="px-3 py-5 text-center text-muted-foreground" colSpan={7}>
-                  No attendance records found.
-                </td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
-      </div>
-
       <Pagination page={page} total={total} pageSize={pageSize} onPageChange={setPage} />
-      <CalendarBoard title="Attendance Calendar" items={calendarItems} />
+      <CalendarBoard
+        title="Schedules Calendar"
+        items={calendarItems}
+        onItemClick={(item) => {
+          if (!item.schedule) {
+            return
+          }
+          openDetailDialog(item.schedule, "calendar")
+        }}
+      />
     </section>
   )
 }
@@ -2300,7 +2510,7 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
   return (
     <main className="min-h-svh bg-[radial-gradient(circle_at_8%_15%,rgba(60,120,230,0.16),transparent_36%),radial-gradient(circle_at_85%_5%,rgba(219,129,66,0.2),transparent_44%),radial-gradient(circle_at_90%_85%,rgba(39,172,130,0.14),transparent_38%)] p-3 md:p-6">
       <div className="mx-auto max-w-7xl space-y-4">
-        <header className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/70 bg-card/80 p-4 backdrop-blur">
+        <header className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-card/80 p-4 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-xs font-medium tracking-[0.22em] text-muted-foreground uppercase">
               ANTS BIMBEL PORTAL
@@ -2314,60 +2524,48 @@ function Dashboard({ session, onLogout }: { session: Session; onLogout: () => vo
             </p>
           </div>
 
-          <Button variant="outline" onClick={onLogout}>
+          <Button variant="outline" className="w-full sm:w-auto" onClick={onLogout}>
             <LogOut className="size-4" />
             Logout
           </Button>
         </header>
 
-        <nav className="flex flex-wrap gap-2 rounded-2xl border border-border/70 bg-card/70 p-3">
-          {isAdmin ? (
+        {isAdmin ? (
+          <nav className="grid grid-cols-1 gap-2 rounded-2xl border border-border/70 bg-card/70 p-3 sm:grid-cols-3">
             <Button
               variant={activeTab === "users" ? "default" : "outline"}
               size="sm"
+              className="w-full"
               onClick={() => setActiveTab("users")}
             >
               <UserRound className="size-4" />
               Tutors
             </Button>
-          ) : null}
-          {isAdmin ? (
             <Button
               variant={activeTab === "students" ? "default" : "outline"}
               size="sm"
+              className="w-full"
               onClick={() => setActiveTab("students")}
             >
               <UserRound className="size-4" />
               Students
             </Button>
-          ) : null}
-          <Button
-            variant={activeTab === "schedules" ? "default" : "outline"}
-            size="sm"
-            onClick={() => setActiveTab("schedules")}
-          >
-            <CalendarCheck className="size-4" />
-            Schedules
-          </Button>
-          {isAdmin ? (
             <Button
-              variant={activeTab === "attendance" ? "default" : "outline"}
+              variant={activeTab === "schedules" ? "default" : "outline"}
               size="sm"
-              onClick={() => setActiveTab("attendance")}
+              className="w-full"
+              onClick={() => setActiveTab("schedules")}
             >
-              <ClipboardList className="size-4" />
-              Attendance
+              <CalendarCheck className="size-4" />
+              Schedules
             </Button>
-          ) : null}
-        </nav>
+          </nav>
+        ) : null}
 
         {activeTab === "users" && isAdmin ? <UsersSection token={session.token} /> : null}
         {activeTab === "students" && isAdmin ? <StudentsSection token={session.token} /> : null}
         {activeTab === "schedules" ? (
           <SchedulesSection token={session.token} canManage={isAdmin} tutorId={isAdmin ? undefined : session.user.id} />
-        ) : null}
-        {isAdmin && activeTab === "attendance" ? (
-          <AttendanceSection token={session.token} user={session.user} />
         ) : null}
       </div>
     </main>

@@ -1,6 +1,8 @@
+from datetime import timedelta
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.db import transaction
+from django.utils import timezone
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
 from .models import CheckIn, CheckOut, Schedule, Student
@@ -134,6 +136,34 @@ class CheckInSerializer(serializers.ModelSerializer):
 
         return schedule
 
+    def validate(self, attrs):
+        request = self.context.get('request')
+        if not request or not is_tutor(request.user):
+            return attrs
+
+        schedule = attrs.get('schedule')
+        is_create = self.instance is None
+
+        if is_create and not schedule:
+            raise serializers.ValidationError({'schedule_id': 'Tutor check-in must be linked to a schedule.'})
+
+        if is_create and schedule:
+            check_in_time = attrs.get('check_in_time') or timezone.now()
+            if timezone.is_naive(check_in_time):
+                check_in_time = timezone.make_aware(check_in_time, timezone.get_current_timezone())
+
+            scheduled_at = schedule.scheduled_at
+            if timezone.is_naive(scheduled_at):
+                scheduled_at = timezone.make_aware(scheduled_at, timezone.get_current_timezone())
+
+            earliest_check_in = scheduled_at - timedelta(minutes=30)
+            if check_in_time < earliest_check_in:
+                raise serializers.ValidationError(
+                    {'check_in_time': 'Tutors can only check in at most 30 minutes before the schedule time.'}
+                )
+
+        return attrs
+
     @extend_schema_field(serializers.IntegerField(allow_null=True))
     def get_check_out_id(self, obj):
         check_out = getattr(obj, 'check_out', None)
@@ -162,6 +192,18 @@ class CheckInSerializer(serializers.ModelSerializer):
             for key, value in defaults.items():
                 setattr(check_out, key, value)
             check_out.save()
+
+        self._mark_schedule_done(check_in)
+
+    def _mark_schedule_done(self, check_in):
+        try:
+            schedule = check_in.schedule
+        except Schedule.DoesNotExist:
+            return
+
+        if schedule.status != Schedule.STATUS_DONE:
+            schedule.status = Schedule.STATUS_DONE
+            schedule.save(update_fields=['status'])
 
     @transaction.atomic
     def create(self, validated_data):
@@ -200,26 +242,51 @@ class CheckInSerializer(serializers.ModelSerializer):
 
 class ScheduleSerializer(serializers.ModelSerializer):
     tutor_id = serializers.PrimaryKeyRelatedField(source='tutor', queryset=User.objects.all())
+    tutor_name = serializers.SerializerMethodField()
+    student_name = serializers.SerializerMethodField()
     check_in_id = serializers.SerializerMethodField()
     check_out_id = serializers.SerializerMethodField()
+    check_in_detail = serializers.SerializerMethodField()
+    check_out_detail = serializers.SerializerMethodField()
 
     class Meta:
         model = Schedule
         fields = [
             'id',
             'tutor_id',
+            'tutor_name',
             'student_id',
+            'student_name',
             'subject_topic',
             'scheduled_at',
             'status',
             'check_in_id',
             'check_out_id',
+            'check_in_detail',
+            'check_out_detail',
         ]
 
     def validate_tutor_id(self, tutor):
         if is_admin(tutor):
             raise serializers.ValidationError('Tutor must be a non-admin user.')
         return tutor
+
+    @extend_schema_field(serializers.CharField())
+    def get_tutor_name(self, obj):
+        first_name = (obj.tutor.first_name or '').strip()
+        last_name = (obj.tutor.last_name or '').strip()
+        full_name = f'{first_name} {last_name}'.strip()
+        return full_name or obj.tutor.username
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_student_name(self, obj):
+        cache = self.context.setdefault('_student_name_cache', {})
+        student_id = obj.student_id
+
+        if student_id not in cache:
+            cache[student_id] = Student.objects.filter(student_id=student_id).values_list('full_name', flat=True).first()
+
+        return cache[student_id]
 
     @extend_schema_field(serializers.IntegerField(allow_null=True))
     def get_check_in_id(self, obj):
@@ -231,3 +298,63 @@ class ScheduleSerializer(serializers.ModelSerializer):
         check_in = getattr(obj, 'check_in', None)
         check_out = getattr(check_in, 'check_out', None) if check_in else None
         return check_out.id if check_out else None
+
+    def _build_media_url(self, file_field):
+        if not file_field:
+            return None
+
+        url = getattr(file_field, 'url', None)
+        if not url:
+            return None
+
+        request = self.context.get('request')
+        if request:
+            return request.build_absolute_uri(url)
+        return url
+
+    @extend_schema_field(
+        {
+            'type': 'object',
+            'nullable': True,
+            'properties': {
+                'id': {'type': 'integer'},
+                'time': {'type': 'string', 'format': 'date-time'},
+                'location': {'type': 'string'},
+                'photo': {'type': 'string', 'nullable': True},
+            },
+        }
+    )
+    def get_check_in_detail(self, obj):
+        check_in = getattr(obj, 'check_in', None)
+        if not check_in:
+            return None
+
+        return {
+            'id': check_in.id,
+            'time': check_in.check_in_time,
+            'location': check_in.check_in_location,
+            'photo': self._build_media_url(check_in.check_in_photo),
+        }
+
+    @extend_schema_field(
+        {
+            'type': 'object',
+            'nullable': True,
+            'properties': {
+                'id': {'type': 'integer'},
+                'time': {'type': 'string', 'format': 'date-time'},
+                'photo': {'type': 'string', 'nullable': True},
+            },
+        }
+    )
+    def get_check_out_detail(self, obj):
+        check_in = getattr(obj, 'check_in', None)
+        check_out = getattr(check_in, 'check_out', None) if check_in else None
+        if not check_out:
+            return None
+
+        return {
+            'id': check_out.id,
+            'time': check_out.check_out_time,
+            'photo': self._build_media_url(check_out.check_out_photo),
+        }

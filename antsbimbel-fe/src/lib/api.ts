@@ -13,12 +13,25 @@ export type ApiUser = {
 export type Schedule = {
   id: number
   tutor_id: number
+  tutor_name: string
   student_id: string
+  student_name: string | null
   subject_topic: string
   scheduled_at: string
   status: "upcoming" | "done" | "cancelled" | "rescheduled"
   check_in_id: number | null
   check_out_id: number | null
+  check_in_detail: {
+    id: number
+    time: string
+    location: string
+    photo: string | null
+  } | null
+  check_out_detail: {
+    id: number
+    time: string
+    photo: string | null
+  } | null
 }
 
 export type Attendance = {
@@ -49,6 +62,21 @@ export type DateFilters = {
   studentId: string
   startDate: string
   endDate: string
+}
+
+export type ScheduleStatusFilter = "" | Schedule["status"]
+
+export type ScheduleSortBy = "id" | "scheduled_at" | "status"
+
+export type SortOrder = "asc" | "desc"
+
+export type ScheduleListQuery = {
+  filters: DateFilters
+  status: ScheduleStatusFilter
+  sortBy: ScheduleSortBy
+  sortOrder: SortOrder
+  page: number
+  pageSize: number
 }
 
 export type Student = {
@@ -121,6 +149,32 @@ function buildListQuery(filters: DateFilters, page: number, pageSize: number): s
   }
   if (filters.endDate) {
     params.set("end_date", filters.endDate)
+  }
+
+  return `?${params.toString()}`
+}
+
+function buildScheduleListQuery(query: ScheduleListQuery): string {
+  const params = new URLSearchParams()
+  params.set("page", String(query.page))
+  params.set("page_size", String(query.pageSize))
+  params.set("sort_by", query.sortBy)
+  params.set("sort_order", query.sortOrder)
+
+  if (query.filters.tutorId.trim()) {
+    params.set("tutor_id", query.filters.tutorId.trim())
+  }
+  if (query.filters.studentId.trim()) {
+    params.set("student_id", query.filters.studentId.trim())
+  }
+  if (query.filters.startDate) {
+    params.set("start_date", query.filters.startDate)
+  }
+  if (query.filters.endDate) {
+    params.set("end_date", query.filters.endDate)
+  }
+  if (query.status) {
+    params.set("status", query.status)
   }
 
   return `?${params.toString()}`
@@ -234,8 +288,8 @@ export const studentsApi = {
 }
 
 export const schedulesApi = {
-  list(filters: DateFilters, page: number, pageSize: number, token: string) {
-    const query = buildListQuery(filters, page, pageSize)
+  list(queryInput: ScheduleListQuery, token: string) {
+    const query = buildScheduleListQuery(queryInput)
     return apiRequest<PaginatedResponse<Schedule>>(`/schedules/${query}`, {}, token)
   },
   create(payload: SaveSchedulePayload, token: string) {

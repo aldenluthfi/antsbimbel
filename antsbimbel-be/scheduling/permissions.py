@@ -14,6 +14,24 @@ class IsAdminForUserManagement(BasePermission):
         return is_admin(request.user)
 
 
+class StudentPermission(BasePermission):
+    """
+    Admin: full CRUD for students.
+    Tutor: read-only access.
+    """
+
+    def has_permission(self, request, view):
+        user = request.user
+
+        if is_admin(user):
+            return True
+
+        if is_tutor(user):
+            return request.method in SAFE_METHODS
+
+        return False
+
+
 class AttendancePermission(BasePermission):
     """
     Admin: read and delete attendance records.
