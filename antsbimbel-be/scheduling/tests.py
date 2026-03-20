@@ -73,7 +73,7 @@ class StudentAccessTests(APITestCase):
 		self.assertEqual(response.data['results'][0]['id'], self.student_with_schedule.id)
 
 class UserCreationEmailTests(APITestCase):
-	@patch('scheduling.serializers.GoogleGmailSender')
+	@patch('scheduling.user_serializers.GoogleGmailSender')
 	def test_create_user_sends_credentials_email(self, gmail_sender_cls):
 		serializer = UserSerializer(
 			data={
@@ -97,7 +97,7 @@ class UserCreationEmailTests(APITestCase):
 		)
 		self.assertTrue(User.objects.filter(pk=created_user.pk).exists())
 
-	@patch('scheduling.serializers.GoogleGmailSender')
+	@patch('scheduling.user_serializers.GoogleGmailSender')
 	def test_create_user_rolls_back_when_email_fails(self, gmail_sender_cls):
 		gmail_sender_cls.return_value.send_new_user_credentials_email.side_effect = GoogleGmailSendError('mail failed')
 
