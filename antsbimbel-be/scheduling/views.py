@@ -1,13 +1,16 @@
 from django.contrib.auth import authenticate, get_user_model, logout
+from django.http import HttpResponse
 from django.utils.dateparse import parse_date, parse_datetime
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
 from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.decorators import action
 from rest_framework import mixins, status, viewsets
 from rest_framework.authtoken.models import Token
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from .google_drive import GoogleDriveUploadError, GoogleDriveUploader
 from .models import CheckIn, Schedule, Student
 from .permissions import (
 	AttendancePermission,
@@ -264,6 +267,63 @@ class AttendanceViewSet(
 				queryset = queryset.filter(check_in_time__date__lte=end_date)
 
 		return queryset
+
+	@action(detail=True, methods=['get'], url_path=r'photo/(?P<photo_kind>check-in|check-out)')
+	def photo(self, request, pk=None, photo_kind=None):
+		check_in = self.get_object()
+
+		if photo_kind == 'check-in':
+			stored_photo = check_in.check_in_photo
+		else:
+			check_out = getattr(check_in, 'check_out', None)
+			if not check_out or not check_out.check_out_photo:
+				return Response({'detail': 'Photo not found.'}, status=status.HTTP_404_NOT_FOUND)
+			stored_photo = check_out.check_out_photo
+
+		file_id = self._extract_google_drive_file_id(stored_photo)
+		if not file_id:
+			return Response({'detail': 'Unsupported photo source.'}, status=status.HTTP_404_NOT_FOUND)
+
+		try:
+			uploader = GoogleDriveUploader()
+			file_data = uploader.download_file(file_id=file_id)
+		except GoogleDriveUploadError as exc:
+			return Response(
+				{'detail': f'Failed to fetch image from Google Drive: {exc}'},
+				status=status.HTTP_502_BAD_GATEWAY,
+			)
+
+		response = HttpResponse(
+			file_data['content'],
+			content_type=file_data['mime_type'],
+		)
+		response['Content-Disposition'] = f'inline; filename="{file_data["name"]}"'
+		response['Cache-Control'] = 'private, max-age=300'
+		return response
+
+	@staticmethod
+	def _extract_google_drive_file_id(value):
+		normalized = str(value or '').strip()
+		if not normalized:
+			return None
+
+		import re
+
+		patterns = [
+			r'drive\.google\.com/file/d/([a-zA-Z0-9_-]+)',
+			r'drive\.google\.com/open\?id=([a-zA-Z0-9_-]+)',
+			r'[?&]id=([a-zA-Z0-9_-]+)',
+		]
+
+		for pattern in patterns:
+			match = re.search(pattern, normalized)
+			if match:
+				return match.group(1)
+
+		if re.fullmatch(r'[a-zA-Z0-9_-]{20,}', normalized):
+			return normalized
+
+		return None
 
 
 class ScheduleViewSet(viewsets.ModelViewSet):

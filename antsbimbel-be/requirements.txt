@@ -3,3 +3,5 @@ djangorestframework>=3.15
 drf-spectacular>=0.27
 Pillow>=10.0
 django-cors-headers>=4.4
+google-api-python-client>=2.169
+google-auth>=2.35

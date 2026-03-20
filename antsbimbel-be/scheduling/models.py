@@ -46,7 +46,7 @@ class CheckIn(models.Model):
 	student_id = models.CharField(max_length=64)
 	check_in_time = models.DateTimeField(default=timezone.now)
 	check_in_location = models.CharField(max_length=255)
-	check_in_photo = models.ImageField(upload_to='attendance/checkins/')
+	check_in_photo = models.URLField(max_length=2048)
 
 	def __str__(self):
 		return f'CheckIn #{self.pk} - Tutor {self.tutor_id}'
@@ -59,7 +59,7 @@ class CheckOut(models.Model):
 		related_name='check_out',
 	)
 	check_out_time = models.DateTimeField(default=timezone.now)
-	check_out_photo = models.ImageField(upload_to='attendance/checkouts/')
+	check_out_photo = models.URLField(max_length=2048)
 	total_shift_time = models.DurationField(blank=True, null=True)
 
 	def save(self, *args, **kwargs):
