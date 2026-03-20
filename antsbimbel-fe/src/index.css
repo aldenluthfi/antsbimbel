@@ -128,3 +128,13 @@
     @apply font-sans;
     }
 }
+
+/* Hide the native time picker icon to keep the schedule form input clean. */
+.time-input-no-icon::-webkit-calendar-picker-indicator {
+  display: none;
+  -webkit-appearance: none;
+}
+
+.time-input-no-icon::-webkit-clear-button {
+  display: none;
+}

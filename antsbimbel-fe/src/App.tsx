@@ -14,6 +14,7 @@ import {
   UserRound,
 } from "lucide-react"
 import { format } from "date-fns"
+import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -58,6 +59,21 @@ import { type DateRange } from "react-day-picker"
 type DashboardTab = "users" | "students" | "schedules"
 type CalendarMode = "month" | "week"
 
+const REPORT_MONTH_OPTIONS = [
+  { value: "01", label: "January" },
+  { value: "02", label: "February" },
+  { value: "03", label: "March" },
+  { value: "04", label: "April" },
+  { value: "05", label: "May" },
+  { value: "06", label: "June" },
+  { value: "07", label: "July" },
+  { value: "08", label: "August" },
+  { value: "09", label: "September" },
+  { value: "10", label: "October" },
+  { value: "11", label: "November" },
+  { value: "12", label: "December" },
+]
+
 type CalendarItem = {
   id: string
   studentName: string
@@ -69,13 +85,73 @@ type CalendarItem = {
 }
 
 const SESSION_STORAGE_KEY = "antsbimbel_session"
+const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://127.0.0.1:8000/api"
+const WIB_TIMEZONE = "Asia/Jakarta"
+const WIB_OFFSET_HOURS = 7
+
+function buildAttendancePhotoUrl(checkInId: number, photoKind: "check-in" | "check-out"): string {
+  return `${API_BASE}/attendance/${checkInId}/photo/${photoKind}/`
+}
+
+function notifySubmitError(error: unknown, title = "Submit failed") {
+  toast.error(title, { description: parseApiError(error) })
+}
+
+function getWibDateTimeParts(date: Date): {
+  year: string
+  month: string
+  day: string
+  hour: string
+  minute: string
+} {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: WIB_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date)
+
+  const getPart = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value ?? ""
+
+  return {
+    year: getPart("year"),
+    month: getPart("month"),
+    day: getPart("day"),
+    hour: getPart("hour"),
+    minute: getPart("minute"),
+  }
+}
 
 function formatDateTime(isoDate: string): string {
-  return new Date(isoDate).toLocaleString()
+  const date = new Date(isoDate)
+  if (Number.isNaN(date.getTime())) {
+    return "-"
+  }
+
+  const { year, month, day, hour, minute } = getWibDateTimeParts(date)
+  return `${year}-${month}-${day} ${hour}:${minute} WIB`
 }
 
 function displayStudentName(schedule: Schedule): string {
-  return schedule.student_name?.trim() || schedule.student_id
+  return schedule.student_name?.trim() || `#${schedule.student}`
+}
+
+function displayTutorName(schedule: Schedule): string {
+  return schedule.tutor_name?.trim() || `#${schedule.tutor}`
+}
+
+function getTutorFullName(tutor: Pick<ApiUser, "id" | "username" | "first_name" | "last_name">): string {
+  const fullName = `${tutor.first_name ?? ""} ${tutor.last_name ?? ""}`.trim()
+  return fullName || tutor.username || `#${tutor.id}`
+}
+
+function getStudentFullName(student: Pick<Student, "id" | "first_name" | "last_name">): string {
+  const fullName = `${student.first_name ?? ""} ${student.last_name ?? ""}`.trim()
+  return fullName || `#${student.id}`
 }
 
 function isSchedulePast(schedule: Schedule): boolean {
@@ -170,9 +246,7 @@ function toDateInputValue(isoDate: string): string {
     return ""
   }
 
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, "0")
-  const day = String(date.getDate()).padStart(2, "0")
+  const { year, month, day } = getWibDateTimeParts(date)
   return `${year}-${month}-${day}`
 }
 
@@ -182,18 +256,49 @@ function toTimeInputValue(isoDate: string): string {
     return ""
   }
 
-  const hours = String(date.getHours()).padStart(2, "0")
-  const minutes = String(date.getMinutes()).padStart(2, "0")
-  return `${hours}:${minutes}`
+  const { hour, minute } = getWibDateTimeParts(date)
+  return `${hour}:${minute}`
 }
 
 function toScheduledAtIso(datePart: string, timePart: string): string {
-  const localDateTime = new Date(`${datePart}T${timePart}`)
-  if (Number.isNaN(localDateTime.getTime())) {
+  const dateMatch = datePart.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  const timeMatch = timePart.match(/^(\d{2}):(\d{2})$/)
+
+  if (!dateMatch || !timeMatch) {
     return ""
   }
 
-  return localDateTime.toISOString()
+  const year = Number(dateMatch[1])
+  const monthIndex = Number(dateMatch[2]) - 1
+  const day = Number(dateMatch[3])
+  const hour = Number(timeMatch[1])
+  const minute = Number(timeMatch[2])
+
+  if ([year, monthIndex, day, hour, minute].some((value) => Number.isNaN(value))) {
+    return ""
+  }
+
+  const utcMillis = Date.UTC(year, monthIndex, day, hour - WIB_OFFSET_HOURS, minute, 0, 0)
+  const date = new Date(utcMillis)
+  if (Number.isNaN(date.getTime())) {
+    return ""
+  }
+
+  return date.toISOString()
+}
+
+function toWibCalendarDate(isoDate: string): Date {
+  const parsed = new Date(isoDate)
+  if (Number.isNaN(parsed.getTime())) {
+    return new Date()
+  }
+
+  const { year, month, day } = getWibDateTimeParts(parsed)
+  return new Date(Number(year), Number(month) - 1, Number(day), 0, 0, 0, 0)
+}
+
+function getCurrentWibDate(): Date {
+  return toWibCalendarDate(new Date().toISOString())
 }
 
 function startOfWeek(date: Date): Date {
@@ -211,36 +316,12 @@ function endOfWeek(date: Date): Date {
   return next
 }
 
-function startOfMonthGrid(date: Date): Date {
-  const first = new Date(date.getFullYear(), date.getMonth(), 1)
-  return startOfWeek(first)
-}
-
 function sameDate(a: Date, b: Date): boolean {
   return (
     a.getFullYear() === b.getFullYear() &&
     a.getMonth() === b.getMonth() &&
     a.getDate() === b.getDate()
   )
-}
-
-function buildLocationSearchUrl(location: string): string {
-  const normalized = location.trim()
-  if (!normalized) {
-    return "https://www.google.com"
-  }
-
-  const coordinatesMatch = normalized.match(
-    /^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/
-  )
-
-  if (coordinatesMatch) {
-    const latitude = coordinatesMatch[1]
-    const longitude = coordinatesMatch[2]
-    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${latitude},${longitude}`)}`
-  }
-
-  return `https://www.google.com/search?q=${encodeURIComponent(normalized)}`
 }
 
 function AttendancePhoto({
@@ -327,7 +408,7 @@ function LoginPage({ onLogin }: { onLogin: (session: Session) => void }) {
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [error, setError] = useState("")
+  const [, setError] = useState("")
 
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -335,9 +416,11 @@ function LoginPage({ onLogin }: { onLogin: (session: Session) => void }) {
     setIsSubmitting(true)
     try {
       const payload = await authApi.login(username, password)
+      toast.success("Login successful")
       onLogin(payload)
     } catch (submissionError) {
       setError(parseApiError(submissionError))
+      notifySubmitError(submissionError, "Login failed")
     } finally {
       setIsSubmitting(false)
     }
@@ -355,7 +438,7 @@ function LoginPage({ onLogin }: { onLogin: (session: Session) => void }) {
         </p>
 
         <form className="mt-6 space-y-4" onSubmit={submit}>
-          <label className="block space-y-1">
+          <label className="block space-y-2">
             <span className="text-sm font-medium">Username</span>
             <input
               required
@@ -365,7 +448,7 @@ function LoginPage({ onLogin }: { onLogin: (session: Session) => void }) {
             />
           </label>
 
-          <label className="block space-y-1">
+          <label className="block space-y-2">
             <span className="text-sm font-medium">Password</span>
             <input
               type="password"
@@ -375,8 +458,6 @@ function LoginPage({ onLogin }: { onLogin: (session: Session) => void }) {
               className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm outline-none transition focus:border-primary"
             />
           </label>
-
-          {error ? <p className="text-sm text-red-500">{error}</p> : null}
 
           <Button className="w-full" disabled={isSubmitting} type="submit">
             {isSubmitting ? "Signing in..." : "Sign in"}
@@ -411,11 +492,10 @@ function TutorCombobox({
     }
 
     return tutors.filter((tutor) => {
-      const fullName = `${tutor.first_name} ${tutor.last_name}`.trim()
       return (
         String(tutor.id).includes(normalized) ||
         tutor.username.toLowerCase().includes(normalized) ||
-        fullName.toLowerCase().includes(normalized) ||
+        getTutorFullName(tutor).toLowerCase().includes(normalized) ||
         tutor.email.toLowerCase().includes(normalized)
       )
     })
@@ -434,7 +514,7 @@ function TutorCombobox({
         >
           <span className="truncate text-left">
             {selectedTutor
-              ? `${selectedTutor.username} (#${selectedTutor.id})`
+              ? `${getTutorFullName(selectedTutor)} (#${selectedTutor.id})`
               : (placeholder ?? "Select tutor")}
           </span>
           <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-60" />
@@ -444,7 +524,7 @@ function TutorCombobox({
         <Input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search tutor..."
+          placeholder="Search by ID or name"
           className="h-9"
         />
         <div className="mt-2 max-h-56 overflow-auto rounded-md border border-border">
@@ -452,7 +532,6 @@ function TutorCombobox({
             <p className="px-3 py-2 text-sm text-muted-foreground">No tutor found.</p>
           ) : (
             filteredTutors.map((tutor) => {
-              const fullName = `${tutor.first_name} ${tutor.last_name}`.trim()
               const isSelected = String(tutor.id) === value
 
               return (
@@ -468,7 +547,7 @@ function TutorCombobox({
                 >
                   <span className="min-w-0">
                     <span className="block truncate font-medium">
-                      {tutor.username} {fullName ? `(${fullName})` : ""}
+                      {getTutorFullName(tutor)}
                     </span>
                     <span className="block truncate text-xs text-muted-foreground">#{tutor.id}</span>
                   </span>
@@ -499,7 +578,7 @@ function StudentCombobox({
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
 
-  const selectedStudent = students.find((student) => student.student_id === value)
+  const selectedStudent = students.find((student) => String(student.id) === value)
   const filteredStudents = useMemo(() => {
     const normalized = query.trim().toLowerCase()
     if (!normalized) {
@@ -508,8 +587,8 @@ function StudentCombobox({
 
     return students.filter((student) => {
       return (
-        student.student_id.toLowerCase().includes(normalized) ||
-        student.full_name.toLowerCase().includes(normalized)
+        String(student.id).includes(normalized) ||
+        getStudentFullName(student).toLowerCase().includes(normalized)
       )
     })
   }, [query, students])
@@ -527,7 +606,7 @@ function StudentCombobox({
         >
           <span className="truncate text-left">
             {selectedStudent
-              ? `${selectedStudent.student_id} (${selectedStudent.full_name})`
+              ? `${getStudentFullName(selectedStudent)} (#${selectedStudent.id})`
               : (placeholder ?? "Select student")}
           </span>
           <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-60" />
@@ -537,7 +616,7 @@ function StudentCombobox({
         <Input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search student..."
+          placeholder="Search by ID or name"
           className="h-9"
         />
         <div className="mt-2 max-h-56 overflow-auto rounded-md border border-border">
@@ -545,24 +624,22 @@ function StudentCombobox({
             <p className="px-3 py-2 text-sm text-muted-foreground">No student found.</p>
           ) : (
             filteredStudents.map((student) => {
-              const isSelected = student.student_id === value
+              const isSelected = String(student.id) === value
 
               return (
                 <button
                   key={student.id}
                   type="button"
                   onClick={() => {
-                    onChange(student.student_id)
+                    onChange(String(student.id))
                     setOpen(false)
                     setQuery("")
                   }}
                   className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-muted"
                 >
                   <span className="min-w-0">
-                    <span className="block truncate font-medium">{student.student_id}</span>
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {student.full_name}
-                    </span>
+                    <span className="block truncate font-medium">{getStudentFullName(student)}</span>
+                    <span className="block truncate text-xs text-muted-foreground">#{student.id}</span>
                   </span>
                   {isSelected ? <Check className="size-4" /> : null}
                 </button>
@@ -575,16 +652,20 @@ function StudentCombobox({
   )
 }
 
-function DatePickerInput({
-  value,
-  onChange,
+function DateTimePickerInput({
+  dateValue,
+  timeValue,
+  onDateChange,
+  onTimeChange,
   placeholder,
 }: {
-  value: string
-  onChange: (next: string) => void
+  dateValue: string
+  timeValue: string
+  onDateChange: (next: string) => void
+  onTimeChange: (next: string) => void
   placeholder: string
 }) {
-  const selectedDate = value ? new Date(`${value}T00:00:00`) : undefined
+  const selectedDate = dateValue ? new Date(`${dateValue}T00:00:00`) : undefined
 
   return (
     <Popover>
@@ -592,19 +673,34 @@ function DatePickerInput({
         <Button
           type="button"
           variant="outline"
-          className={cn("h-9 w-full justify-start text-left font-normal", !value && "text-muted-foreground")}
+          className={cn(
+            "h-9 w-full justify-start text-left font-normal",
+            !selectedDate && "text-muted-foreground"
+          )}
         >
           <CalendarDays className="mr-2 size-4" />
-          {value ? format(new Date(`${value}T00:00:00`), "PPP") : placeholder}
+          {selectedDate ? format(selectedDate, "PPP") : placeholder}
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-0" align="start">
-        <Calendar
-          mode="single"
-          selected={selectedDate}
-          onSelect={(nextDate) => onChange(nextDate ? format(nextDate, "yyyy-MM-dd") : "")}
-          initialFocus
-        />
+        <div className="border-b border-border">
+          <Calendar
+            mode="single"
+            selected={selectedDate}
+            onSelect={(nextDate) => onDateChange(nextDate ? format(nextDate, "yyyy-MM-dd") : "")}
+            autoFocus
+          />
+        </div>
+        <div className="space-y-1 p-3">
+          <p className="text-xs font-medium text-muted-foreground">Time</p>
+          <Input
+            type="time"
+            step={60}
+            value={timeValue}
+            onChange={(event) => onTimeChange(event.target.value)}
+            className="time-input-no-icon h-9"
+          />
+        </div>
       </PopoverContent>
     </Popover>
   )
@@ -643,9 +739,9 @@ function DateRangePickerInput({
 
   const selectedRange: DateRange | undefined = startDate
     ? {
-        from: new Date(`${startDate}T00:00:00`),
-        to: endDate ? new Date(`${endDate}T00:00:00`) : undefined,
-      }
+      from: new Date(`${startDate}T00:00:00`),
+      to: endDate ? new Date(`${endDate}T00:00:00`) : undefined,
+    }
     : undefined
 
   const label = selectedRange?.from
@@ -725,7 +821,7 @@ function DateFilterPanel({
         </p>
         <div className={cn("grid gap-3", filterGridColumnsClass)}>
           {showTutor ? (
-            <label className="space-y-1 text-sm">
+            <label className="space-y-2 text-sm">
               <span className="font-medium">Tutor ID</span>
               <TutorCombobox
                 tutors={tutors}
@@ -737,7 +833,7 @@ function DateFilterPanel({
           ) : null}
 
           {canPickStudent ? (
-            <label className="space-y-1 text-sm">
+            <label className="space-y-2 text-sm">
               <span className="font-medium">Student ID</span>
               <StudentCombobox
                 students={students ?? []}
@@ -747,18 +843,18 @@ function DateFilterPanel({
               />
             </label>
           ) : (
-            <label className="space-y-1 text-sm">
+            <label className="space-y-2 text-sm">
               <span className="font-medium">Student ID</span>
               <input
                 value={value.studentId}
                 onChange={(event) => onChange({ ...value, studentId: event.target.value })}
                 className="h-9 w-full rounded-lg border border-border bg-background px-3 text-sm"
-                placeholder="e.g. STD001"
+                placeholder="e.g. 123"
               />
             </label>
           )}
 
-          <label className="space-y-1 text-sm">
+          <label className="space-y-2 text-sm">
             <span className="font-medium">Date range</span>
             <DateRangePickerInput
               startDate={value.startDate}
@@ -767,7 +863,7 @@ function DateFilterPanel({
             />
           </label>
 
-          <label className="space-y-1 text-sm">
+          <label className="space-y-2 text-sm">
             <span className="font-medium">Status</span>
             <Select value={status || "all"} onValueChange={(next) => onStatusChange(next === "all" ? "" : (next as ScheduleStatusFilter))}>
               <SelectTrigger className="h-9 w-full">
@@ -790,7 +886,7 @@ function DateFilterPanel({
           Sort
         </p>
         <div className="grid gap-3 md:grid-cols-2">
-          <label className="space-y-1 text-sm">
+          <label className="space-y-2 text-sm">
             <span className="font-medium">Sort by</span>
             <Select value={sortBy} onValueChange={(next) => onSortByChange(next as ScheduleSortBy)}>
               <SelectTrigger className="h-9 w-full">
@@ -804,7 +900,7 @@ function DateFilterPanel({
             </Select>
           </label>
 
-          <label className="space-y-1 text-sm">
+          <label className="space-y-2 text-sm">
             <span className="font-medium">Order</span>
             <Select value={sortOrder} onValueChange={(next) => onSortOrderChange(next as SortOrder)}>
               <SelectTrigger className="h-9 w-full">
@@ -827,18 +923,38 @@ function Pagination({
   total,
   pageSize,
   onPageChange,
+  onPageSizeChange,
 }: {
   page: number
   total: number
   pageSize: number
   onPageChange: (nextPage: number) => void
+  onPageSizeChange: (nextPageSize: number) => void
 }) {
+  const pageSizeOptions = [10, 25, 50, 100]
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   return (
     <div className="flex flex-col gap-3 text-sm sm:flex-row sm:items-center sm:justify-between">
-      <p className="text-muted-foreground">
-        Page {page} / {totalPages} ({total} records)
-      </p>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+        <p className="text-muted-foreground">
+          Page {page} / {totalPages} ({total} records)
+        </p>
+        <div className="flex items-center gap-2">
+          <span className="text-muted-foreground">Rows</span>
+          <Select value={String(pageSize)} onValueChange={(next) => onPageSizeChange(Number(next))}>
+            <SelectTrigger className="h-8 w-24">
+              <SelectValue placeholder="Rows" />
+            </SelectTrigger>
+            <SelectContent>
+              {pageSizeOptions.map((option) => (
+                <SelectItem key={option} value={String(option)}>
+                  {option}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
       <div className="flex w-full gap-2 sm:w-auto">
         <Button
           variant="outline"
@@ -867,15 +983,29 @@ function Pagination({
 
 function CalendarBoard({
   title,
+  mode,
+  cursorDate,
   items,
+  onModeChange,
+  onMove,
+  onToday,
   onItemClick,
 }: {
   title: string
+  mode: CalendarMode
+  cursorDate: Date
   items: CalendarItem[]
+  onModeChange: (nextMode: CalendarMode) => void
+  onMove: (direction: "next" | "prev") => void
+  onToday: () => void
   onItemClick?: (item: CalendarItem) => void
 }) {
-  const [mode, setMode] = useState<CalendarMode>("month")
-  const [cursorDate, setCursorDate] = useState(new Date())
+  const monthStart = useMemo(() => new Date(cursorDate.getFullYear(), cursorDate.getMonth(), 1), [cursorDate])
+  const monthEnd = useMemo(() => {
+    const end = new Date(cursorDate.getFullYear(), cursorDate.getMonth() + 1, 0)
+    end.setHours(23, 59, 59, 999)
+    return end
+  }, [cursorDate])
 
   const visibleRange = useMemo(() => {
     if (mode === "week") {
@@ -884,27 +1014,12 @@ function CalendarBoard({
       return { start, end }
     }
 
-    const start = startOfMonthGrid(cursorDate)
-    const end = new Date(start)
-    end.setDate(end.getDate() + 41)
-    end.setHours(23, 59, 59, 999)
-    return { start, end }
-  }, [mode, cursorDate])
+    return { start: monthStart, end: monthEnd }
+  }, [mode, cursorDate, monthEnd, monthStart])
 
   const visibleItems = items.filter(
     (item) => item.date >= visibleRange.start && item.date <= visibleRange.end
   )
-
-  const move = (direction: "next" | "prev") => {
-    const amount = direction === "next" ? 1 : -1
-    if (mode === "week") {
-      const next = new Date(cursorDate)
-      next.setDate(next.getDate() + amount * 7)
-      setCursorDate(next)
-      return
-    }
-    setCursorDate(new Date(cursorDate.getFullYear(), cursorDate.getMonth() + amount, 1))
-  }
 
   const weekDays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
@@ -916,22 +1031,22 @@ function CalendarBoard({
 
       <div className="flex gap-2 flex-col sm:flex-row justify-x-between w-full">
         <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:flex-wrap justify-start">
-          <Button size="sm" variant={mode === "month" ? "default" : "outline"} onClick={() => setMode("month")}>
+          <Button size="sm" variant={mode === "month" ? "default" : "outline"} onClick={() => onModeChange("month")}>
             Month
           </Button>
-          <Button size="sm" variant={mode === "week" ? "default" : "outline"} onClick={() => setMode("week")}>
+          <Button size="sm" variant={mode === "week" ? "default" : "outline"} onClick={() => onModeChange("week")}>
             Week
           </Button>
         </div>
 
         <div className="flex w-max items-center gap-2 mx-auto sm:w-full justify-end">
-          <Button size="sm" variant="outline" onClick={() => move("prev")} aria-label="Previous period">
+          <Button size="sm" variant="outline" onClick={() => onMove("prev")} aria-label="Previous period">
             <ChevronLeft className="size-4" />
           </Button>
-          <Button size="sm" variant="outline" onClick={() => setCursorDate(new Date())} className="px-4">
+          <Button size="sm" variant="outline" onClick={onToday} className="px-4">
             Today
           </Button>
-          <Button size="sm" variant="outline" onClick={() => move("next")} aria-label="Next period">
+          <Button size="sm" variant="outline" onClick={() => onMove("next")} aria-label="Next period">
             <ChevronRight className="size-4" />
           </Button>
         </div>
@@ -954,20 +1069,20 @@ function CalendarBoard({
       {mode === "month" ? (
         <div className="overflow-x-auto pb-1">
           <div className="grid min-w-180 grid-cols-7 gap-2">
-            {Array.from({ length: 42 }).map((_, index) => {
-              const day = new Date(visibleRange.start)
-              day.setDate(day.getDate() + index)
+            {Array.from({ length: monthStart.getDay() }).map((_, index) => (
+              <div
+                key={`empty-${index}`}
+                aria-hidden="true"
+                className="min-h-24 rounded-lg border border-dashed border-border/50 bg-transparent"
+              />
+            ))}
+            {Array.from({ length: monthEnd.getDate() }).map((_, index) => {
+              const day = new Date(monthStart)
+              day.setDate(index + 1)
               const dayItems = visibleItems.filter((item) => sameDate(item.date, day))
-              const inCurrentMonth = day.getMonth() === cursorDate.getMonth()
 
               return (
-                <div
-                  key={day.toISOString()}
-                  className={cn(
-                    "min-h-24 rounded-lg border border-border p-2",
-                    inCurrentMonth ? "bg-card" : "bg-muted/40"
-                  )}
-                >
+                <div key={day.toISOString()} className="min-h-24 rounded-lg border border-border bg-card p-2">
                   <p className="mb-1 text-xs font-semibold">{day.getDate()}</p>
                   <div className="space-y-1">
                     {dayItems.slice(0, 3).map((item) => (
@@ -1045,10 +1160,12 @@ function CalendarBoard({
 
 function UsersSection({ token }: { token: string }) {
   const [users, setUsers] = useState<ApiUser[]>([])
+  const [searchQuery, setSearchQuery] = useState("")
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState("")
+  const [, setError] = useState("")
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [creating, setCreating] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
@@ -1070,13 +1187,11 @@ function UsersSection({ token }: { token: string }) {
     is_active: true,
   })
 
-  const pageSize = 10
-
   const fetchUsers = async () => {
     setLoading(true)
     setError("")
     try {
-      const response = await usersApi.list(token, page, pageSize)
+      const response = await usersApi.list(token, page, pageSize, searchQuery)
       setUsers(response.results)
       setTotal(response.count)
     } catch (fetchError) {
@@ -1089,7 +1204,7 @@ function UsersSection({ token }: { token: string }) {
   useEffect(() => {
     void fetchUsers()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page])
+  }, [page, pageSize, searchQuery])
 
   const createUser = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -1097,6 +1212,7 @@ function UsersSection({ token }: { token: string }) {
     setError("")
     try {
       await usersApi.create(createForm, token)
+      toast.success("Tutor created")
       setIsCreateOpen(false)
       setCreateForm({
         username: "",
@@ -1109,6 +1225,7 @@ function UsersSection({ token }: { token: string }) {
       await fetchUsers()
     } catch (createError) {
       setError(parseApiError(createError))
+      notifySubmitError(createError, "Create tutor failed")
     } finally {
       setCreating(false)
     }
@@ -1162,10 +1279,12 @@ function UsersSection({ token }: { token: string }) {
 
     try {
       await usersApi.update(editingUserId, payload, token)
+      toast.success("Tutor updated")
       cancelEditUser()
       await fetchUsers()
     } catch (updateError) {
       setError(parseApiError(updateError))
+      notifySubmitError(updateError, "Update tutor failed")
     } finally {
       setIsEditing(false)
     }
@@ -1180,12 +1299,14 @@ function UsersSection({ token }: { token: string }) {
     setError("")
     try {
       await usersApi.remove(user.id, token)
+      toast.success("Tutor deleted")
       if (editingUserId === user.id) {
         cancelEditUser()
       }
       await fetchUsers()
     } catch (deleteError) {
       setError(parseApiError(deleteError))
+      notifySubmitError(deleteError, "Delete tutor failed")
     }
   }
 
@@ -1197,6 +1318,16 @@ function UsersSection({ token }: { token: string }) {
           {isCreateOpen ? "Close" : "Create tutor"}
         </Button>
       </div>
+
+      <Input
+        value={searchQuery}
+        onChange={(event) => {
+          setSearchQuery(event.target.value)
+          setPage(1)
+        }}
+        placeholder="Search by ID or name"
+        className="h-9 md:max-w-sm"
+      />
 
       {isCreateOpen ? (
         <form onSubmit={createUser} className="grid gap-3 rounded-xl border border-border bg-background p-3 md:grid-cols-3">
@@ -1302,7 +1433,6 @@ function UsersSection({ token }: { token: string }) {
         </form>
       ) : null}
 
-      {error ? <p className="text-sm text-red-500">{error}</p> : null}
       {loading ? <p className="text-sm text-muted-foreground">Loading users...</p> : null}
 
       <div className="space-y-3 md:hidden">
@@ -1388,37 +1518,48 @@ function UsersSection({ token }: { token: string }) {
         </table>
       </div>
 
-      <Pagination page={page} total={total} pageSize={pageSize} onPageChange={setPage} />
+      <Pagination
+        page={page}
+        total={total}
+        pageSize={pageSize}
+        onPageChange={setPage}
+        onPageSizeChange={(nextPageSize) => {
+          setPageSize(nextPageSize)
+          setPage(1)
+        }}
+      />
     </section>
   )
 }
 
 function StudentsSection({ token }: { token: string }) {
   const [students, setStudents] = useState<Student[]>([])
+  const [searchQuery, setSearchQuery] = useState("")
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState("")
+  const [, setError] = useState("")
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [creating, setCreating] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [editingStudentId, setEditingStudentId] = useState<number | null>(null)
   const [createForm, setCreateForm] = useState({
-    full_name: "",
+    first_name: "",
+    last_name: "",
     is_active: true,
   })
   const [editForm, setEditForm] = useState({
-    full_name: "",
+    first_name: "",
+    last_name: "",
     is_active: true,
   })
-
-  const pageSize = 10
 
   const fetchStudents = async () => {
     setLoading(true)
     setError("")
     try {
-      const response = await studentsApi.list(token, page, pageSize)
+      const response = await studentsApi.list(token, page, pageSize, searchQuery)
       setStudents(response.results)
       setTotal(response.count)
     } catch (fetchError) {
@@ -1431,7 +1572,7 @@ function StudentsSection({ token }: { token: string }) {
   useEffect(() => {
     void fetchStudents()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page])
+  }, [page, pageSize, searchQuery])
 
   const createStudent = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -1439,14 +1580,17 @@ function StudentsSection({ token }: { token: string }) {
     setError("")
     try {
       await studentsApi.create(createForm, token)
+      toast.success("Student created")
       setIsCreateOpen(false)
       setCreateForm({
-        full_name: "",
+        first_name: "",
+        last_name: "",
         is_active: true,
       })
       await fetchStudents()
     } catch (createError) {
       setError(parseApiError(createError))
+      notifySubmitError(createError, "Create student failed")
     } finally {
       setCreating(false)
     }
@@ -1455,7 +1599,8 @@ function StudentsSection({ token }: { token: string }) {
   const openEditStudent = (student: Student) => {
     setEditingStudentId(student.id)
     setEditForm({
-      full_name: student.full_name,
+      first_name: student.first_name,
+      last_name: student.last_name,
       is_active: student.is_active,
     })
   }
@@ -1463,7 +1608,8 @@ function StudentsSection({ token }: { token: string }) {
   const cancelEditStudent = () => {
     setEditingStudentId(null)
     setEditForm({
-      full_name: "",
+      first_name: "",
+      last_name: "",
       is_active: true,
     })
   }
@@ -1479,17 +1625,19 @@ function StudentsSection({ token }: { token: string }) {
 
     try {
       await studentsApi.update(editingStudentId, editForm, token)
+      toast.success("Student updated")
       cancelEditStudent()
       await fetchStudents()
     } catch (updateError) {
       setError(parseApiError(updateError))
+      notifySubmitError(updateError, "Update student failed")
     } finally {
       setIsEditing(false)
     }
   }
 
   const deleteStudent = async (student: Student) => {
-    const shouldDelete = window.confirm(`Delete student ${student.student_id}?`)
+    const shouldDelete = window.confirm(`Delete student #${student.id}?`)
     if (!shouldDelete) {
       return
     }
@@ -1497,12 +1645,14 @@ function StudentsSection({ token }: { token: string }) {
     setError("")
     try {
       await studentsApi.remove(student.id, token)
+      toast.success("Student deleted")
       if (editingStudentId === student.id) {
         cancelEditStudent()
       }
       await fetchStudents()
     } catch (deleteError) {
       setError(parseApiError(deleteError))
+      notifySubmitError(deleteError, "Delete student failed")
     }
   }
 
@@ -1515,13 +1665,29 @@ function StudentsSection({ token }: { token: string }) {
         </Button>
       </div>
 
+      <Input
+        value={searchQuery}
+        onChange={(event) => {
+          setSearchQuery(event.target.value)
+          setPage(1)
+        }}
+        placeholder="Search by ID or name"
+        className="h-9 md:max-w-sm"
+      />
+
       {isCreateOpen ? (
         <form onSubmit={createStudent} className="grid gap-3 rounded-xl border border-border bg-background p-3 md:grid-cols-2">
           <Input
             required
-            value={createForm.full_name}
-            onChange={(event) => setCreateForm({ ...createForm, full_name: event.target.value })}
-            placeholder="Full name"
+            value={createForm.first_name}
+            onChange={(event) => setCreateForm({ ...createForm, first_name: event.target.value })}
+            placeholder="First name"
+            className="h-9"
+          />
+          <Input
+            value={createForm.last_name}
+            onChange={(event) => setCreateForm({ ...createForm, last_name: event.target.value })}
+            placeholder="Last name"
             className="h-9"
           />
           <label className="flex items-center gap-2 text-sm">
@@ -1542,9 +1708,15 @@ function StudentsSection({ token }: { token: string }) {
         <form onSubmit={updateStudent} className="grid gap-3 rounded-xl border border-border bg-background p-3 md:grid-cols-2">
           <Input
             required
-            value={editForm.full_name}
-            onChange={(event) => setEditForm({ ...editForm, full_name: event.target.value })}
-            placeholder="Full name"
+            value={editForm.first_name}
+            onChange={(event) => setEditForm({ ...editForm, first_name: event.target.value })}
+            placeholder="First name"
+            className="h-9"
+          />
+          <Input
+            value={editForm.last_name}
+            onChange={(event) => setEditForm({ ...editForm, last_name: event.target.value })}
+            placeholder="Last name"
             className="h-9"
           />
           <label className="flex items-center gap-2 text-sm">
@@ -1566,14 +1738,13 @@ function StudentsSection({ token }: { token: string }) {
         </form>
       ) : null}
 
-      {error ? <p className="text-sm text-red-500">{error}</p> : null}
       {loading ? <p className="text-sm text-muted-foreground">Loading students...</p> : null}
 
       <div className="space-y-3 md:hidden">
         {students.map((student) => (
           <article key={student.id} className="rounded-xl border border-border bg-background p-3 text-sm">
-            <p className="font-semibold">{student.full_name}</p>
-            <p className="text-xs text-muted-foreground">{student.student_id} • #{student.id}</p>
+            <p className="font-semibold">{getStudentFullName(student)}</p>
+            <p className="text-xs text-muted-foreground">#{student.id}</p>
             <p className="mt-2 text-muted-foreground">Active: {student.is_active ? "Yes" : "No"}</p>
             <div className="mt-3 flex gap-2">
               <Button className="flex-1" size="sm" variant="outline" onClick={() => openEditStudent(student)}>
@@ -1599,8 +1770,7 @@ function StudentsSection({ token }: { token: string }) {
           <thead className="bg-muted/70 text-left">
             <tr>
               <th className="px-3 py-2">ID</th>
-              <th className="px-3 py-2">Student ID</th>
-              <th className="px-3 py-2">Full Name</th>
+              <th className="px-3 py-2">Name</th>
               <th className="px-3 py-2">Active</th>
               <th className="px-3 py-2">Actions</th>
             </tr>
@@ -1609,8 +1779,7 @@ function StudentsSection({ token }: { token: string }) {
             {students.map((student) => (
               <tr key={student.id} className="border-t border-border">
                 <td className="px-3 py-2">{student.id}</td>
-                <td className="px-3 py-2">{student.student_id}</td>
-                <td className="px-3 py-2">{student.full_name}</td>
+                <td className="px-3 py-2">{getStudentFullName(student)}</td>
                 <td className="px-3 py-2">{student.is_active ? "Yes" : "No"}</td>
                 <td className="px-3 py-2">
                   <div className="flex gap-2">
@@ -1628,7 +1797,7 @@ function StudentsSection({ token }: { token: string }) {
             ))}
             {students.length === 0 && !loading ? (
               <tr>
-                <td className="px-3 py-5 text-center text-muted-foreground" colSpan={5}>
+                <td className="px-3 py-5 text-center text-muted-foreground" colSpan={4}>
                   No students found.
                 </td>
               </tr>
@@ -1637,7 +1806,16 @@ function StudentsSection({ token }: { token: string }) {
         </table>
       </div>
 
-      <Pagination page={page} total={total} pageSize={pageSize} onPageChange={setPage} />
+      <Pagination
+        page={page}
+        total={total}
+        pageSize={pageSize}
+        onPageChange={setPage}
+        onPageSizeChange={(nextPageSize) => {
+          setPageSize(nextPageSize)
+          setPage(1)
+        }}
+      />
     </section>
   )
 }
@@ -1661,10 +1839,13 @@ function SchedulesSection({
   const [statusFilter, setStatusFilter] = useState<ScheduleStatusFilter>("")
   const [sortBy, setSortBy] = useState<ScheduleSortBy>("scheduled_at")
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc")
+  const [calendarMode, setCalendarMode] = useState<CalendarMode>("month")
+  const [calendarCursorDate, setCalendarCursorDate] = useState(getCurrentWibDate())
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState("")
+  const [, setError] = useState("")
   const [cameraStatus, setCameraStatus] = useState<"idle" | "granted" | "denied">("idle")
   const [locationStatus, setLocationStatus] = useState<"idle" | "granted" | "denied">("idle")
   const [checkInLocation, setCheckInLocation] = useState("")
@@ -1673,6 +1854,24 @@ function SchedulesSection({
   const [capturedPhoto, setCapturedPhoto] = useState<File | null>(null)
   const [isSubmittingCapture, setIsSubmittingCapture] = useState(false)
   const [capturedPhotoUrl, setCapturedPhotoUrl] = useState<string | null>(null)
+  const [reportMonth, setReportMonth] = useState(() => format(new Date(), "yyyy-MM"))
+  const reportMonthParts = useMemo(() => {
+    const match = reportMonth.match(/^(\d{4})-(\d{2})$/)
+    if (!match) {
+      const now = new Date()
+      return {
+        year: String(now.getFullYear()),
+        month: String(now.getMonth() + 1).padStart(2, "0"),
+      }
+    }
+
+    return { year: match[1], month: match[2] }
+  }, [reportMonth])
+  const reportYearOptions = useMemo(() => {
+    const currentYear = new Date().getFullYear()
+    return Array.from({ length: 11 }, (_, index) => String(currentYear - 5 + index))
+  }, [])
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false)
   const [detailDialogState, setDetailDialogState] = useState<{
     schedule: Schedule
     mode: "check-in" | "check-out" | "calendar"
@@ -1685,14 +1884,12 @@ function SchedulesSection({
   const [isSaving, setIsSaving] = useState(false)
   const [editing, setEditing] = useState<Schedule | null>(null)
   const [formState, setFormState] = useState({
-    tutor_id: tutorId ? String(tutorId) : "",
-    student_id: "",
+    tutor: tutorId ? String(tutorId) : "",
+    student: "",
     subject_topic: "",
     scheduled_at: "",
     status: "upcoming" as Schedule["status"],
   })
-
-  const pageSize = 10
 
   const fetchSchedules = async () => {
     setLoading(true)
@@ -1710,14 +1907,14 @@ function SchedulesSection({
         },
         token
       )
-      const calendarResponse = await schedulesApi.list(
+      const calendarResponse = await schedulesApi.calendarPagination(
         {
           filters,
           status: statusFilter,
           sortBy,
           sortOrder,
-          page: 1,
-          pageSize: 100,
+          mode: calendarMode,
+          cursorDate: format(calendarCursorDate, "yyyy-MM-dd"),
         },
         token
       )
@@ -1735,7 +1932,7 @@ function SchedulesSection({
   useEffect(() => {
     void fetchSchedules()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, filters, statusFilter, sortBy, sortOrder])
+  }, [page, pageSize, filters, statusFilter, sortBy, sortOrder, calendarMode, calendarCursorDate])
 
   useEffect(() => {
     if (tutorId) {
@@ -1779,8 +1976,8 @@ function SchedulesSection({
   const resetForm = () => {
     setEditing(null)
     setFormState({
-      tutor_id: tutorId ? String(tutorId) : "",
-      student_id: "",
+      tutor: tutorId ? String(tutorId) : "",
+      student: "",
       subject_topic: "",
       scheduled_at: "",
       status: "upcoming",
@@ -1795,8 +1992,8 @@ function SchedulesSection({
   const openEdit = (schedule: Schedule) => {
     setEditing(schedule)
     setFormState({
-      tutor_id: String(schedule.tutor_id),
-      student_id: schedule.student_id,
+      tutor: String(schedule.tutor),
+      student: String(schedule.student),
       subject_topic: schedule.subject_topic,
       scheduled_at: schedule.scheduled_at,
       status: schedule.status,
@@ -1818,12 +2015,14 @@ function SchedulesSection({
 
   const saveSchedule = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (!formState.tutor_id) {
+    if (!formState.tutor) {
       setError("Please select a tutor.")
+      toast.error("Save schedule failed", { description: "Please select a tutor." })
       return
     }
-    if (!formState.student_id.trim()) {
+    if (!formState.student.trim()) {
       setError("Please select a student.")
+      toast.error("Save schedule failed", { description: "Please select a student." })
       return
     }
     const scheduledDate = toDateInputValue(formState.scheduled_at)
@@ -1831,11 +2030,15 @@ function SchedulesSection({
 
     if (!scheduledDate || !scheduledTime) {
       setError("Please select schedule date and time.")
+      toast.error("Save schedule failed", {
+        description: "Please select schedule date and time.",
+      })
       return
     }
 
     if (!formState.scheduled_at) {
       setError("Invalid schedule date or time.")
+      toast.error("Save schedule failed", { description: "Invalid schedule date or time." })
       return
     }
 
@@ -1843,8 +2046,8 @@ function SchedulesSection({
     setError("")
 
     const payload = {
-      tutor_id: Number(formState.tutor_id),
-      student_id: formState.student_id,
+      tutor: Number(formState.tutor),
+      student: Number(formState.student),
       subject_topic: formState.subject_topic,
       scheduled_at: formState.scheduled_at,
       status: formState.status,
@@ -1853,14 +2056,17 @@ function SchedulesSection({
     try {
       if (editing) {
         await schedulesApi.update(editing.id, payload, token)
+        toast.success("Schedule updated")
       } else {
         await schedulesApi.create(payload, token)
+        toast.success("Schedule created")
       }
       setIsFormOpen(false)
       resetForm()
       await fetchSchedules()
     } catch (saveError) {
       setError(parseApiError(saveError))
+      notifySubmitError(saveError, "Save schedule failed")
     } finally {
       setIsSaving(false)
     }
@@ -1874,9 +2080,40 @@ function SchedulesSection({
 
     try {
       await schedulesApi.remove(id, token)
+      toast.success("Schedule deleted")
       await fetchSchedules()
     } catch (deleteError) {
       setError(parseApiError(deleteError))
+      notifySubmitError(deleteError, "Delete schedule failed")
+    }
+  }
+
+  const generateMonthlyReport = async () => {
+    const month = reportMonth.trim()
+    if (!/^\d{4}-\d{2}$/.test(month)) {
+      setError("Please select a valid month in YYYY-MM format.")
+      toast.error("Generate report failed", {
+        description: "Please select a valid month in YYYY-MM format.",
+      })
+      return
+    }
+
+    setError("")
+    setIsGeneratingReport(true)
+
+    try {
+      const response = await schedulesApi.generateMonthlyReport(month, token)
+      toast.success(`Report for ${response.month} created`, {
+        action: {
+          label: "Open Google Sheet",
+          onClick: () => window.open(response.sheet_url, "_blank", "noopener,noreferrer"),
+        },
+      })
+    } catch (generationError) {
+      setError(parseApiError(generationError))
+      notifySubmitError(generationError, "Generate report failed")
+    } finally {
+      setIsGeneratingReport(false)
     }
   }
 
@@ -2014,6 +2251,7 @@ function SchedulesSection({
     }
     if (!capturedPhoto) {
       setError("Please capture a photo first.")
+      toast.error("Attendance submit failed", { description: "Please capture a photo first." })
       return
     }
 
@@ -2024,12 +2262,15 @@ function SchedulesSection({
       if (captureMode === "check-in") {
         if (!checkInLocation.trim()) {
           setError("Location is required for check-in.")
+          toast.error("Attendance submit failed", {
+            description: "Location is required for check-in.",
+          })
           return
         }
 
         const formData = new FormData()
         formData.append("schedule_id", String(activeCaptureSchedule.id))
-        formData.append("student_id", activeCaptureSchedule.student_id)
+        formData.append("student", String(activeCaptureSchedule.student))
         formData.append("check_in_location", checkInLocation.trim())
         formData.append("check_in_photo", capturedPhoto)
         formData.append("check_in_time", new Date().toISOString())
@@ -2037,6 +2278,9 @@ function SchedulesSection({
       } else {
         if (!activeCaptureSchedule.check_in_id) {
           setError("Check-in record is missing for this schedule.")
+          toast.error("Attendance submit failed", {
+            description: "Check-in record is missing for this schedule.",
+          })
           return
         }
 
@@ -2048,8 +2292,10 @@ function SchedulesSection({
 
       closeCaptureDialog()
       await fetchSchedules()
+      toast.success(captureMode === "check-in" ? "Check in submitted" : "Check out submitted")
     } catch (submitError) {
       setError(parseApiError(submitError))
+      notifySubmitError(submitError, "Attendance submit failed")
     } finally {
       setIsSubmittingCapture(false)
     }
@@ -2070,10 +2316,10 @@ function SchedulesSection({
         return {
           id: `schedule-${schedule.id}`,
           studentName: displayStudentName(schedule),
-          tutorName: schedule.tutor_name,
+          tutorName: displayTutorName(schedule),
           statusLabel: statusPresentation.label,
           statusDotClassName: getScheduleStatusDotClass(schedule),
-          date: new Date(schedule.scheduled_at),
+          date: toWibCalendarDate(schedule.scheduled_at),
           schedule,
         }
       }),
@@ -2134,43 +2380,100 @@ function SchedulesSection({
         }}
       />
 
-      {error ? <p className="text-sm text-red-500">{error}</p> : null}
+      {canManage ? (
+        <section className="space-y-3 rounded-xl border border-border bg-background p-3">
+          <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+            Report
+          </p>
+          <div className="grid gap-3 md:grid-cols-3 md:items-end">
+            <label className="space-y-2 text-sm">
+              <span className="font-medium">Month</span>
+              <Select
+                value={reportMonthParts.month}
+                onValueChange={(nextMonth) =>
+                  setReportMonth(`${reportMonthParts.year}-${nextMonth}`)
+                }
+              >
+                <SelectTrigger className="h-9 w-full">
+                  <SelectValue placeholder="Select month" />
+                </SelectTrigger>
+                <SelectContent>
+                  {REPORT_MONTH_OPTIONS.map((monthOption) => (
+                    <SelectItem key={monthOption.value} value={monthOption.value}>
+                      {monthOption.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </label>
+            <label className="space-y-2 text-sm">
+              <span className="font-medium">Year</span>
+              <Select
+                value={reportMonthParts.year}
+                onValueChange={(nextYear) =>
+                  setReportMonth(`${nextYear}-${reportMonthParts.month}`)
+                }
+              >
+                <SelectTrigger className="h-9 w-full">
+                  <SelectValue placeholder="Select year" />
+                </SelectTrigger>
+                <SelectContent>
+                  {reportYearOptions.map((yearOption) => (
+                    <SelectItem key={yearOption} value={yearOption}>
+                      {yearOption}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </label>
+            <Button
+              type="button"
+              onClick={() => void generateMonthlyReport()}
+              disabled={isGeneratingReport}
+              className="w-full md:w-auto md:self-end"
+            >
+              {isGeneratingReport ? "Generating..." : "Generate report"}
+            </Button>
+          </div>
+        </section>
+      ) : null}
+
       {loading ? <p className="text-sm text-muted-foreground">Loading schedules...</p> : null}
 
       {isFormOpen ? (
         <form onSubmit={saveSchedule} className="grid gap-3 rounded-xl border border-border bg-background p-3 md:grid-cols-2">
-          <label className="space-y-1 text-sm">
+          <label className="space-y-2 text-sm">
             <span className="font-medium">Tutor ID</span>
             {tutorId ? (
-              <Input disabled value={formState.tutor_id} className="h-9 w-full bg-muted" />
+              <Input disabled value={formState.tutor} className="h-9 w-full bg-muted" />
             ) : (
               <TutorCombobox
                 tutors={tutors}
-                value={formState.tutor_id}
-                onChange={(nextTutorId) => setFormState({ ...formState, tutor_id: nextTutorId })}
+                value={formState.tutor}
+                onChange={(nextTutorId) => setFormState({ ...formState, tutor: nextTutorId })}
                 placeholder="Select tutor"
               />
             )}
           </label>
-          <label className="space-y-1 text-sm">
+          <label className="space-y-2 text-sm">
             <span className="font-medium">Student ID</span>
             {canManage ? (
               <StudentCombobox
                 students={students}
-                value={formState.student_id}
-                onChange={(nextStudentId) => setFormState({ ...formState, student_id: nextStudentId })}
+                value={formState.student}
+                onChange={(nextStudentId) => setFormState({ ...formState, student: nextStudentId })}
                 placeholder="Select student"
               />
             ) : (
               <input
                 required
-                value={formState.student_id}
-                onChange={(event) => setFormState({ ...formState, student_id: event.target.value })}
+                value={formState.student}
+                onChange={(event) => setFormState({ ...formState, student: event.target.value })}
                 className="h-9 w-full rounded-lg border border-border px-3 text-sm"
               />
             )}
           </label>
-          <label className="space-y-1 text-sm">
+          <label className="space-y-2 text-sm">
             <span className="font-medium">Subject / topic</span>
             <input
               required
@@ -2179,26 +2482,17 @@ function SchedulesSection({
               className="h-9 w-full rounded-lg border border-border px-3 text-sm"
             />
           </label>
-          <label className="space-y-1 text-sm">
-            <span className="font-medium">Scheduled date</span>
-            <DatePickerInput
-              value={toDateInputValue(formState.scheduled_at)}
-              onChange={updateScheduledDate}
+          <label className="space-y-2 text-sm">
+            <span className="font-medium">Scheduled date & time</span>
+            <DateTimePickerInput
+              dateValue={toDateInputValue(formState.scheduled_at)}
+              timeValue={toTimeInputValue(formState.scheduled_at)}
+              onDateChange={updateScheduledDate}
+              onTimeChange={updateScheduledTime}
               placeholder="Select schedule date"
             />
           </label>
-          <label className="space-y-1 text-sm">
-            <span className="font-medium">Scheduled time</span>
-            <input
-              required
-              type="time"
-              step={60}
-              value={toTimeInputValue(formState.scheduled_at)}
-              onChange={(event) => updateScheduledTime(event.target.value)}
-              className="h-9 w-full rounded-lg border border-border px-3 text-sm"
-            />
-          </label>
-          <label className="space-y-1 text-sm md:col-span-2">
+          <label className="space-y-2 text-sm md:col-span-2">
             <span className="font-medium">Status</span>
             <Select
               value={formState.status}
@@ -2242,7 +2536,7 @@ function SchedulesSection({
                   {statusPresentation.label}
                 </Badge>
               </div>
-              <p className="mt-2 text-muted-foreground">Tutor: {schedule.tutor_name}</p>
+              <p className="mt-2 text-muted-foreground">Tutor: {displayTutorName(schedule)}</p>
               <p className="text-muted-foreground">Student: {displayStudentName(schedule)}</p>
               <p className="text-muted-foreground">Topic: {schedule.subject_topic}</p>
 
@@ -2328,7 +2622,7 @@ function SchedulesSection({
             {schedules.map((schedule) => (
               <tr key={schedule.id} className="border-t border-border">
                 <td className="px-3 py-2">{schedule.id}</td>
-                <td className="px-3 py-2">{schedule.tutor_name}</td>
+                <td className="px-3 py-2">{displayTutorName(schedule)}</td>
                 <td className="px-3 py-2">{displayStudentName(schedule)}</td>
                 <td className="px-3 py-2">{schedule.subject_topic}</td>
                 <td className="px-3 py-2">{formatDateTime(schedule.scheduled_at)}</td>
@@ -2485,7 +2779,7 @@ function SchedulesSection({
             <DialogHeader>
               <DialogTitle>Attendance details</DialogTitle>
               <DialogDescription>
-                {detailDialogState.schedule.tutor_name} • {displayStudentName(detailDialogState.schedule)} •{" "}
+                {displayTutorName(detailDialogState.schedule)} • {displayStudentName(detailDialogState.schedule)} •{" "}
                 <Badge
                   variant="outline"
                   className={getScheduleStatusPresentation(detailDialogState.schedule).className}
@@ -2515,18 +2809,21 @@ function SchedulesSection({
                     <p>
                       <span className="font-medium">Location:</span>{" "}
                       <a
-                        href={buildLocationSearchUrl(detailDialogState.schedule.check_in_detail.location)}
+                        href={detailDialogState.schedule.check_in_detail.location}
                         target="_blank"
                         rel="noreferrer"
                         className="text-primary underline underline-offset-2"
                       >
-                        {detailDialogState.schedule.check_in_detail.location}
+                        Open Google Maps
                       </a>
                     </p>
-                    {detailDialogState.schedule.check_in_detail.photo ? (
+                    {detailDialogState.schedule.check_in_detail ? (
                       <AttendancePhoto
                         token={token}
-                        photoUrl={detailDialogState.schedule.check_in_detail.photo}
+                        photoUrl={buildAttendancePhotoUrl(
+                          detailDialogState.schedule.check_in_detail.id,
+                          "check-in"
+                        )}
                         alt="Check in"
                         className="max-h-80 w-full rounded-lg border border-border object-contain"
                       />
@@ -2548,10 +2845,10 @@ function SchedulesSection({
                     <p>
                       <span className="font-medium">Time:</span> {formatDateTime(detailDialogState.schedule.check_out_detail.time)}
                     </p>
-                    {detailDialogState.schedule.check_out_detail.photo ? (
+                    {detailDialogState.schedule.check_out_detail && detailDialogState.schedule.check_in_id ? (
                       <AttendancePhoto
                         token={token}
-                        photoUrl={detailDialogState.schedule.check_out_detail.photo}
+                        photoUrl={buildAttendancePhotoUrl(detailDialogState.schedule.check_in_id, "check-out")}
                         alt="Check out"
                         className="max-h-80 w-full rounded-lg border border-border object-contain"
                       />
@@ -2570,10 +2867,38 @@ function SchedulesSection({
         </Dialog>
       ) : null}
 
-      <Pagination page={page} total={total} pageSize={pageSize} onPageChange={setPage} />
+      <Pagination
+        page={page}
+        total={total}
+        pageSize={pageSize}
+        onPageChange={setPage}
+        onPageSizeChange={(nextPageSize) => {
+          setPageSize(nextPageSize)
+          setPage(1)
+        }}
+      />
       <CalendarBoard
         title="Schedules Calendar"
+        mode={calendarMode}
+        cursorDate={calendarCursorDate}
         items={calendarItems}
+        onModeChange={(nextMode) => {
+          setCalendarMode(nextMode)
+          setCalendarCursorDate(getCurrentWibDate())
+        }}
+        onMove={(direction) => {
+          setCalendarCursorDate((previousDate) => {
+            const nextDate = new Date(previousDate)
+            if (calendarMode === "week") {
+              nextDate.setDate(nextDate.getDate() + (direction === "next" ? 7 : -7))
+              return nextDate
+            }
+
+            nextDate.setMonth(nextDate.getMonth() + (direction === "next" ? 1 : -1), 1)
+            return nextDate
+          })
+        }}
+        onToday={() => setCalendarCursorDate(getCurrentWibDate())}
         onItemClick={(item) => {
           if (!item.schedule) {
             return

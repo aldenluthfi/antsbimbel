@@ -7,11 +7,17 @@ from django.db import transaction
 from django.utils import timezone
 from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
+from .google_gmail import GoogleGmailSendError, GoogleGmailSender
 from .google_drive import GoogleDriveUploadError, GoogleDriveUploader
+from .location_utils import build_location_search_url
 from .models import CheckIn, CheckOut, Schedule, Student
 from .permissions import is_admin, is_tutor
 
 User = get_user_model()
+
+
+def _compose_name(first_name, last_name):
+    return f'{(first_name or "").strip()} {(last_name or "").strip()}'.strip()
 
 class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False)
@@ -38,16 +44,38 @@ class UserSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         password = validated_data.pop('password', None)
+        email = (validated_data.get('email') or '').strip()
+
+        if not email:
+            raise serializers.ValidationError({'email': 'Email is required to deliver account credentials.'})
 
         user = User(**validated_data)
         self._apply_tutor_role(user)
 
-        if password:
-            user.set_password(password)
-        else:
-            user.set_unusable_password()
+        generated_password = False
+        if not password:
+            password = User.objects.make_random_password(length=12)
+            generated_password = True
 
-        user.save()
+        validate_password(password, user=user)
+        user.set_password(password)
+
+        with transaction.atomic():
+            user.save()
+
+            try:
+                gmail_sender = GoogleGmailSender()
+                gmail_sender.send_new_user_credentials_email(
+                    to_email=email,
+                    username=user.username,
+                    password=password,
+                )
+            except GoogleGmailSendError as exc:
+                message = 'Failed to send credentials email to the new user.'
+                if generated_password:
+                    message += ' A temporary password was generated but not delivered.'
+                raise serializers.ValidationError({'detail': f'{message} {exc}'}) from exc
+
         return user
 
     def update(self, instance, validated_data):
@@ -88,18 +116,18 @@ class StudentSerializer(serializers.ModelSerializer):
         model = Student
         fields = [
             'id',
-            'student_id',
-            'full_name',
+            'first_name',
+            'last_name',
             'is_active',
             'created_at',
             'updated_at',
         ]
-        read_only_fields = ['id', 'student_id', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
 
 
 class CheckInSerializer(serializers.ModelSerializer):
     check_in_id = serializers.IntegerField(source='id', read_only=True)
-    tutor_id = serializers.PrimaryKeyRelatedField(source='tutor', queryset=User.objects.all(), required=False)
+    tutor = serializers.PrimaryKeyRelatedField(queryset=User.objects.all(), required=False)
     schedule_id = serializers.PrimaryKeyRelatedField(source='schedule', queryset=Schedule.objects.all(), write_only=True, required=False)
     check_in_photo = serializers.ImageField(write_only=True, required=False)
     check_in_photo_url = serializers.SerializerMethodField()
@@ -113,9 +141,9 @@ class CheckInSerializer(serializers.ModelSerializer):
         model = CheckIn
         fields = [
             'check_in_id',
-            'tutor_id',
+            'tutor',
             'schedule_id',
-            'student_id',
+            'student',
             'check_in_time',
             'check_in_location',
             'check_in_photo',
@@ -128,10 +156,20 @@ class CheckInSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['check_in_id', 'check_in_photo_url', 'check_out_id', 'check_out_photo_url', 'total_shift_time']
 
-    def validate_tutor_id(self, tutor):
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['check_in_location'] = build_location_search_url(instance.check_in_location)
+        return data
+
+    def validate_tutor(self, tutor):
         if is_admin(tutor):
             raise serializers.ValidationError('Tutor must be a non-admin user.')
         return tutor
+
+    def validate_student(self, student):
+        if not Student.objects.filter(id=student.id).exists():
+            raise serializers.ValidationError('Student with this id does not exist.')
+        return student
 
     def validate_schedule_id(self, schedule):
         request = self.context.get('request')
@@ -139,7 +177,7 @@ class CheckInSerializer(serializers.ModelSerializer):
         if schedule.check_in_id:
             raise serializers.ValidationError('This schedule is already linked to a check-in.')
 
-        if request and is_tutor(request.user) and schedule.tutor_id != request.user.id:
+        if request and is_tutor(request.user) and schedule.tutor.id != request.user.id:
             raise serializers.ValidationError('Tutors can only link check-ins to their own schedules.')
 
         return schedule
@@ -255,16 +293,12 @@ class CheckInSerializer(serializers.ModelSerializer):
         return normalized or 'unknown'
 
     def _resolve_display_name(self, user):
-        first_name = (user.first_name or '').strip()
-        last_name = (user.last_name or '').strip()
-        full_name = f'{first_name} {last_name}'.strip()
-        return full_name or user.username or f'tutor-{user.id}'
+        display_name = _compose_name(user.first_name, user.last_name)
+        return display_name or user.username or f'tutor-{user.id}'
 
-    def _resolve_student_name(self, student_id):
-        student = Student.objects.filter(student_id=student_id).only('full_name').first()
-        if not student:
-            return student_id
-        return student.full_name
+    def _resolve_student_name(self, student):
+        display_name = _compose_name(student.first_name, student.last_name)
+        return display_name or str(student.id)
 
     def _get_photo_extension(self, photo_file):
         ext = Path(photo_file.name or '').suffix.lower()
@@ -283,11 +317,11 @@ class CheckInSerializer(serializers.ModelSerializer):
 
         return ext.lstrip('.')
 
-    def _upload_photo_to_drive(self, *, photo_file, check_type, check_time, tutor, student_id, schedule):
+    def _upload_photo_to_drive(self, *, photo_file, check_type, check_time, tutor, student, schedule):
         folder_month_year = check_time.strftime('%m-%Y')
         folder_date = check_time.strftime('%Y-%m-%d')
         tutor_name = self._safe_folder_name(self._resolve_display_name(tutor))
-        student_name = self._safe_folder_name(self._resolve_student_name(student_id))
+        student_name = self._safe_folder_name(self._resolve_student_name(student))
         schedule_id = schedule.id if schedule else 'no-schedule'
         attendance_folder = f'{tutor_name}-{student_name}-{schedule_id}'
 
@@ -297,7 +331,7 @@ class CheckInSerializer(serializers.ModelSerializer):
 
         try:
             uploader = GoogleDriveUploader()
-            return uploader.upload_file(photo_file=photo_file, folder_parts=folder_parts, file_name=file_name)
+            return uploader.upload_file(file_obj=photo_file, folder_parts=folder_parts, file_name=file_name)
         except GoogleDriveUploadError as exc:
             raise serializers.ValidationError({'detail': f'Failed to upload attendance photo to Google Drive: {exc}'}) from exc
 
@@ -318,7 +352,7 @@ class CheckInSerializer(serializers.ModelSerializer):
                 check_type='CHECK_OUT',
                 check_time=checkout_time_value,
                 tutor=check_in.tutor,
-                student_id=check_in.student_id,
+                student=check_in.student,
                 schedule=schedule,
             )
         if check_out_time is not None:
@@ -356,7 +390,7 @@ class CheckInSerializer(serializers.ModelSerializer):
 
         tutor = validated_data.get('tutor')
         if not tutor:
-            raise serializers.ValidationError({'tutor_id': 'Tutor is required.'})
+            raise serializers.ValidationError({'tutor': 'Tutor is required.'})
 
         check_in_time = validated_data.get('check_in_time') or timezone.now()
         validated_data['check_in_photo'] = self._upload_photo_to_drive(
@@ -364,7 +398,7 @@ class CheckInSerializer(serializers.ModelSerializer):
             check_type='CHECK_IN',
             check_time=check_in_time,
             tutor=tutor,
-            student_id=validated_data['student_id'],
+            student=validated_data['student'],
             schedule=schedule,
         )
 
@@ -398,7 +432,7 @@ class CheckInSerializer(serializers.ModelSerializer):
                 check_type='CHECK_IN',
                 check_time=check_in_time,
                 tutor=validated_data.get('tutor', instance.tutor),
-                student_id=validated_data.get('student_id', instance.student_id),
+                student=validated_data.get('student', instance.student),
                 schedule=schedule,
             )
 
@@ -411,7 +445,7 @@ class CheckInSerializer(serializers.ModelSerializer):
 
 
 class ScheduleSerializer(serializers.ModelSerializer):
-    tutor_id = serializers.PrimaryKeyRelatedField(source='tutor', queryset=User.objects.all())
+    tutor = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
     tutor_name = serializers.SerializerMethodField()
     student_name = serializers.SerializerMethodField()
     check_in_id = serializers.SerializerMethodField()
@@ -423,9 +457,9 @@ class ScheduleSerializer(serializers.ModelSerializer):
         model = Schedule
         fields = [
             'id',
-            'tutor_id',
+            'tutor',
             'tutor_name',
-            'student_id',
+            'student',
             'student_name',
             'subject_topic',
             'scheduled_at',
@@ -436,27 +470,28 @@ class ScheduleSerializer(serializers.ModelSerializer):
             'check_out_detail',
         ]
 
-    def validate_tutor_id(self, tutor):
+    def validate_tutor(self, tutor):
         if is_admin(tutor):
             raise serializers.ValidationError('Tutor must be a non-admin user.')
         return tutor
 
+    def validate_student(self, student):
+        if not Student.objects.filter(id=student.id).exists():
+            raise serializers.ValidationError('Student with this id does not exist.')
+        return student
+
     @extend_schema_field(serializers.CharField())
     def get_tutor_name(self, obj):
-        first_name = (obj.tutor.first_name or '').strip()
-        last_name = (obj.tutor.last_name or '').strip()
-        full_name = f'{first_name} {last_name}'.strip()
-        return full_name or obj.tutor.username
+        display_name = _compose_name(obj.tutor.first_name, obj.tutor.last_name)
+        return display_name or obj.tutor.username
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_student_name(self, obj):
-        cache = self.context.setdefault('_student_name_cache', {})
-        student_id = obj.student_id
+        student = getattr(obj, 'student', None)
+        if not student:
+            return None
 
-        if student_id not in cache:
-            cache[student_id] = Student.objects.filter(student_id=student_id).values_list('full_name', flat=True).first()
-
-        return cache[student_id]
+        return _compose_name(student.first_name, student.last_name) or f'#{student.id}'
 
     @extend_schema_field(serializers.IntegerField(allow_null=True))
     def get_check_in_id(self, obj):
@@ -481,7 +516,7 @@ class ScheduleSerializer(serializers.ModelSerializer):
             'properties': {
                 'id': {'type': 'integer'},
                 'time': {'type': 'string', 'format': 'date-time'},
-                'location': {'type': 'string'},
+                'location': {'type': 'string', 'format': 'uri'},
                 'photo': {'type': 'string', 'nullable': True},
             },
         }
@@ -494,7 +529,7 @@ class ScheduleSerializer(serializers.ModelSerializer):
         return {
             'id': check_in.id,
             'time': check_in.check_in_time,
-            'location': check_in.check_in_location,
+            'location': build_location_search_url(check_in.check_in_location),
             'photo': self._build_media_url(check_in.check_in_photo),
         }
 

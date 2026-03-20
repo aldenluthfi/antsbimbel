@@ -1,7 +1,9 @@
 import io
+import os
 from typing import Iterable
 
 from django.conf import settings
+from django.utils import timezone
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -13,6 +15,16 @@ class GoogleDriveUploadError(Exception):
 
 
 class GoogleDriveUploader:
+    GOOGLE_SPREADSHEET_MIME_TYPE = 'application/vnd.google-apps.spreadsheet'
+    SPREADSHEET_MIME_TYPES = {
+        GOOGLE_SPREADSHEET_MIME_TYPE,
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'text/csv',
+        'application/csv',
+        'text/tab-separated-values',
+    }
+
     def __init__(self):
         self.parent_folder_id = settings.GOOGLE_DRIVE_PARENT_FOLDER_ID
         self.shared_drive_id = settings.GOOGLE_DRIVE_SHARED_DRIVE_ID
@@ -94,13 +106,28 @@ class GoogleDriveUploader:
         files = response.get('files', [])
         return files[0]['id'] if files else None
 
+    @staticmethod
+    def _append_datetime_suffix(file_name: str):
+        base_name, extension = os.path.splitext(file_name)
+        timestamp = timezone.localtime().strftime('%Y%m%d_%H%M%S_%f')
+        if not base_name:
+            return f'{file_name}_{timestamp}'
+        return f'{base_name}_{timestamp}{extension}'
+
+    def _is_spreadsheet_upload(self, *, target_mime_type=None, source_mime_type=None):
+        return target_mime_type in self.SPREADSHEET_MIME_TYPES or source_mime_type in self.SPREADSHEET_MIME_TYPES
+
     def _get_or_create_folder(self, name: str, parent_id: str):
-        folder_id = self._find_folder(name=name, parent_id=parent_id)
+        normalized_name = str(name or '').strip()
+        if not normalized_name:
+            raise GoogleDriveUploadError('Folder name cannot be empty.')
+
+        folder_id = self._find_folder(name=normalized_name, parent_id=parent_id)
         if folder_id:
             return folder_id
 
         metadata = {
-            'name': name,
+            'name': normalized_name,
             'mimeType': 'application/vnd.google-apps.folder',
             'parents': [parent_id],
         }
@@ -120,21 +147,35 @@ class GoogleDriveUploader:
             parent_id = self._get_or_create_folder(name=part, parent_id=parent_id)
         return parent_id
 
-    def upload_file(self, *, photo_file, folder_parts: Iterable[str], file_name: str):
+    def upload_file(
+        self,
+        *,
+        file_obj,
+        folder_parts: Iterable[str],
+        file_name: str,
+        target_mime_type=None,
+        return_metadata=False,
+    ):
         try:
             folder_id = self._ensure_path(folder_parts)
 
-            if hasattr(photo_file, 'seek'):
-                photo_file.seek(0)
+            if hasattr(file_obj, 'seek'):
+                file_obj.seek(0)
 
-            content = photo_file.read()
-            mime_type = getattr(photo_file, 'content_type', None) or 'application/octet-stream'
+            content = file_obj.read()
+            mime_type = getattr(file_obj, 'content_type', None) or 'application/octet-stream'
             media = MediaIoBaseUpload(io.BytesIO(content), mimetype=mime_type, resumable=False)
 
+            resolved_file_name = file_name
+            if self._is_spreadsheet_upload(target_mime_type=target_mime_type, source_mime_type=mime_type):
+                resolved_file_name = self._append_datetime_suffix(file_name)
+
             metadata = {
-                'name': file_name,
+                'name': resolved_file_name,
                 'parents': [folder_id],
             }
+            if target_mime_type:
+                metadata['mimeType'] = target_mime_type
 
             flags = self._write_flags()
             uploaded = self.service.files().create(
@@ -155,6 +196,12 @@ class GoogleDriveUploader:
                     fields='id, webViewLink, webContentLink',
                     **flags,
                 ).execute()
+
+            if return_metadata:
+                return {
+                    'id': uploaded['id'],
+                    'url': uploaded.get('webViewLink') or uploaded.get('webContentLink') or uploaded['id'],
+                }
 
             return uploaded.get('webViewLink') or uploaded.get('webContentLink') or uploaded['id']
         except GoogleDriveUploadError:
@@ -186,6 +233,47 @@ class GoogleDriveUploader:
                 'content': buffer.getvalue(),
                 'name': metadata.get('name') or f'{file_id}.bin',
                 'mime_type': metadata.get('mimeType') or 'application/octet-stream',
+            }
+        except Exception as exc:
+            raise GoogleDriveUploadError(str(exc)) from exc
+
+    def upload_csv_as_google_sheet(self, *, csv_content: str, file_name: str, parent_folder_id: str):
+        try:
+            media = MediaIoBaseUpload(
+                io.BytesIO(csv_content.encode('utf-8')),
+                mimetype='text/csv',
+                resumable=False,
+            )
+
+            metadata = {
+                'name': self._append_datetime_suffix(file_name),
+                'mimeType': self.GOOGLE_SPREADSHEET_MIME_TYPE,
+                'parents': [parent_folder_id],
+            }
+
+            flags = self._write_flags()
+            uploaded = self.service.files().create(
+                body=metadata,
+                media_body=media,
+                fields='id, webViewLink, webContentLink',
+                **flags,
+            ).execute()
+
+            if self.make_public:
+                self.service.permissions().create(
+                    fileId=uploaded['id'],
+                    body={'type': 'anyone', 'role': 'reader'},
+                    **flags,
+                ).execute()
+                uploaded = self.service.files().get(
+                    fileId=uploaded['id'],
+                    fields='id, webViewLink, webContentLink',
+                    **flags,
+                ).execute()
+
+            return {
+                'id': uploaded['id'],
+                'url': uploaded.get('webViewLink') or uploaded.get('webContentLink') or uploaded['id'],
             }
         except Exception as exc:
             raise GoogleDriveUploadError(str(exc)) from exc

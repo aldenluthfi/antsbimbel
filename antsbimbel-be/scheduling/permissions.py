@@ -53,7 +53,7 @@ class AttendancePermission(BasePermission):
             return request.method in SAFE_METHODS or request.method == 'DELETE'
 
         if is_tutor(user):
-            return obj.tutor_id == user.id and (
+            return obj.tutor.id == user.id and (
                 request.method in SAFE_METHODS or request.method in {'PUT', 'PATCH'}
             )
 
@@ -84,6 +84,6 @@ class SchedulePermission(BasePermission):
             return True
 
         if is_tutor(user):
-            return request.method in SAFE_METHODS and obj.tutor_id == user.id
+            return request.method in SAFE_METHODS and obj.tutor.id == user.id
 
         return False

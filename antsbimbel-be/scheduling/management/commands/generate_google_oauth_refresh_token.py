@@ -8,6 +8,10 @@ from django.core.management.base import BaseCommand, CommandError
 
 class Command(BaseCommand):
 	help = 'Generate Google OAuth consent URL and exchange authorization code for refresh token.'
+	DEFAULT_SCOPES = [
+		'https://www.googleapis.com/auth/drive',
+		'https://www.googleapis.com/auth/gmail.send',
+	]
 
 	def add_arguments(self, parser):
 		parser.add_argument('--client-id', dest='client_id', help='OAuth client ID.')
@@ -17,8 +21,8 @@ class Command(BaseCommand):
 		parser.add_argument(
 			'--scope',
 			dest='scope',
-			default='https://www.googleapis.com/auth/drive',
-			help='OAuth scope. Defaults to full Google Drive scope.',
+			default=' '.join(self.DEFAULT_SCOPES),
+			help='OAuth scopes as a space-delimited string. Defaults to Drive + Gmail send scopes.',
 		)
 
 	def handle(self, *args, **options):
@@ -39,7 +43,7 @@ class Command(BaseCommand):
 			raise CommandError('Missing redirect URI. Provide --redirect-uri or set GOOGLE_OAUTH_REDIRECT_URI.')
 
 		if not scope:
-			raise CommandError('Scope cannot be empty.')
+			raise CommandError('Scope cannot be empty. Use Drive and Gmail send scopes for this project.')
 
 		consent_params = {
 			'client_id': client_id,
@@ -57,6 +61,9 @@ class Command(BaseCommand):
 
 		self.stdout.write(self.style.SUCCESS('Step 1: Open this URL in your browser and approve access:'))
 		self.stdout.write(consent_url)
+		self.stdout.write('Scopes requested:')
+		for scope_item in scope.split():
+			self.stdout.write(f'- {scope_item}')
 
 		if not auth_code:
 			self.stdout.write(

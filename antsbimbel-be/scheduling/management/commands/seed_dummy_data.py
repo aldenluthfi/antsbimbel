@@ -11,6 +11,52 @@ from scheduling.models import Schedule, Student
 class Command(BaseCommand):
     help = "Seed dummy tutors, students, and schedules with minimum target counts."
 
+    FIRST_NAMES = [
+        "Alya",
+        "Bima",
+        "Citra",
+        "Dion",
+        "Eka",
+        "Farhan",
+        "Gita",
+        "Hendra",
+        "Indra",
+        "Jasmine",
+        "Kevin",
+        "Laras",
+        "Maya",
+        "Naufal",
+        "Putri",
+        "Rafi",
+        "Salsa",
+        "Tegar",
+        "Vina",
+        "Yusuf",
+    ]
+
+    LAST_NAMES = [
+        "Pratama",
+        "Saputra",
+        "Wijaya",
+        "Permata",
+        "Nugroho",
+        "Halim",
+        "Kusuma",
+        "Ramadhan",
+        "Mahendra",
+        "Lestari",
+        "Hidayat",
+        "Santoso",
+        "Maulana",
+        "Anjani",
+        "Pangestu",
+        "Fauzi",
+        "Amelia",
+        "Kurniawan",
+        "Wibowo",
+        "Siregar",
+    ]
+
     def add_arguments(self, parser):
         parser.add_argument("--tutors", type=int, default=15, help="Minimum number of tutors")
         parser.add_argument("--students", type=int, default=50, help="Minimum number of students")
@@ -75,10 +121,13 @@ class Command(BaseCommand):
             if User.objects.filter(username=username).exists():
                 continue
 
+            first_name = random.choice(self.FIRST_NAMES)
+            last_name = random.choice(self.LAST_NAMES)
+
             User.objects.create_user(
                 username=username,
-                first_name=f"Tutor{created + 1}",
-                last_name="Demo",
+                first_name=first_name,
+                last_name=last_name,
                 email=f"{username}@example.com",
                 password=default_password,
                 is_staff=False,
@@ -91,11 +140,11 @@ class Command(BaseCommand):
 
     def _create_students(self, count):
         created = 0
-        base_index = Student.objects.count() + 1
 
         while created < count:
-            index = base_index + created
-            Student.objects.create(full_name=f"Student Demo {index}", is_active=True)
+            first_name = random.choice(self.FIRST_NAMES)
+            last_name = random.choice(self.LAST_NAMES)
+            Student.objects.create(first_name=first_name, last_name=last_name, is_active=True)
             created += 1
 
         return created
@@ -126,7 +175,7 @@ class Command(BaseCommand):
 
         schedules = []
         for _ in range(count):
-            day_offset = random.randint(-14, 30)
+            day_offset = random.randint(-(count // 6), (count // 6))
             hour_offset = random.randint(7, 19)
             minute_offset = random.choice([0, 15, 30, 45])
             scheduled_at = (now + timedelta(days=day_offset)).replace(
@@ -142,7 +191,7 @@ class Command(BaseCommand):
             schedules.append(
                 Schedule(
                     tutor=tutor,
-                    student_id=student.student_id,
+                    student=student,
                     subject_topic=random.choice(subjects),
                     scheduled_at=scheduled_at,
                     status=random.choice(statuses),
