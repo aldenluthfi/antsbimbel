@@ -459,6 +459,16 @@ export function SchedulesSection({
     await requestLocationPermission()
   }
 
+  const requestCapturePermissions = async () => {
+    setError("")
+    const hasCamera = await requestCameraPermission()
+    if (!hasCamera) {
+      return
+    }
+
+    await requestLocationPermission()
+  }
+
   const openCaptureDialog = async (mode: "check-in" | "check-out", schedule: Schedule) => {
     setError("")
     setActiveCaptureSchedule(schedule)
@@ -470,15 +480,6 @@ export function SchedulesSection({
     if (capturedPhotoUrl) {
       URL.revokeObjectURL(capturedPhotoUrl)
       setCapturedPhotoUrl(null)
-    }
-
-    const hasCamera = await requestCameraPermission()
-    if (!hasCamera) {
-      return
-    }
-
-    if (mode === "check-in") {
-      await requestLocationPermission()
     }
   }
 
@@ -1005,6 +1006,11 @@ export function SchedulesSection({
             <div className="space-y-2">
               <video ref={videoRef} autoPlay muted playsInline className="w-full rounded-lg border border-border bg-black/80" />
               <canvas ref={canvasRef} className="hidden" />
+              {captureMode === "check-in" && !(cameraStatus === "granted" && locationStatus === "granted") ? (
+                <Button type="button" variant="secondary" onClick={() => void requestCapturePermissions()}>
+                  Enable camera and location
+                </Button>
+              ) : null}
               <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                 <Button type="button" variant="outline" onClick={() => void restartCamera()}>
                   Restart camera
