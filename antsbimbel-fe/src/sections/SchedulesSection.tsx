@@ -60,7 +60,6 @@ import {
   toTimeInputValue,
   toWibCalendarDate,
 } from "@/lib/helpers/schedule"
-import { notifySubmitError } from "@/lib/helpers/notifications"
 
 export function SchedulesSection({
   token,
@@ -87,7 +86,7 @@ export function SchedulesSection({
   const [pageSize, setPageSize] = useState(10)
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
-  const [, setError] = useState("")
+  const [error, setError] = useState("")
   const [cameraStatus, setCameraStatus] = useState<"idle" | "granted" | "denied">("idle")
   const [locationStatus, setLocationStatus] = useState<"idle" | "granted" | "denied">("idle")
   const [checkInLocation, setCheckInLocation] = useState("")
@@ -215,6 +214,14 @@ export function SchedulesSection({
     }
   }, [capturedPhotoUrl])
 
+  useEffect(() => {
+    if (!error) {
+      return
+    }
+
+    toast.error(error)
+  }, [error])
+
   const resetForm = () => {
     setEditing(null)
     setFormState({
@@ -259,12 +266,10 @@ export function SchedulesSection({
     event.preventDefault()
     if (!formState.tutor) {
       setError("Please select a tutor.")
-      toast.error("Save schedule failed", { description: "Please select a tutor." })
       return
     }
     if (!formState.student.trim()) {
       setError("Please select a student.")
-      toast.error("Save schedule failed", { description: "Please select a student." })
       return
     }
     const scheduledDate = toDateInputValue(formState.scheduled_at)
@@ -272,15 +277,11 @@ export function SchedulesSection({
 
     if (!scheduledDate || !scheduledTime) {
       setError("Please select schedule date and time.")
-      toast.error("Save schedule failed", {
-        description: "Please select schedule date and time.",
-      })
       return
     }
 
     if (!formState.scheduled_at) {
       setError("Invalid schedule date or time.")
-      toast.error("Save schedule failed", { description: "Invalid schedule date or time." })
       return
     }
 
@@ -308,7 +309,6 @@ export function SchedulesSection({
       await fetchSchedules()
     } catch (saveError) {
       setError(parseApiError(saveError))
-      notifySubmitError(saveError, "Save schedule failed")
     } finally {
       setIsSaving(false)
     }
@@ -326,7 +326,6 @@ export function SchedulesSection({
       await fetchSchedules()
     } catch (deleteError) {
       setError(parseApiError(deleteError))
-      notifySubmitError(deleteError, "Delete schedule failed")
     }
   }
 
@@ -334,9 +333,6 @@ export function SchedulesSection({
     const month = reportMonth.trim()
     if (!/^\d{4}-\d{2}$/.test(month)) {
       setError("Please select a valid month in YYYY-MM format.")
-      toast.error("Generate report failed", {
-        description: "Please select a valid month in YYYY-MM format.",
-      })
       return
     }
 
@@ -353,7 +349,6 @@ export function SchedulesSection({
       })
     } catch (generationError) {
       setError(parseApiError(generationError))
-      notifySubmitError(generationError, "Generate report failed")
     } finally {
       setIsGeneratingReport(false)
     }
@@ -459,10 +454,10 @@ export function SchedulesSection({
     await requestLocationPermission()
   }
 
-  const requestCapturePermissions = async () => {
+  const requestCaptureAccess = async (mode: "check-in" | "check-out") => {
     setError("")
     const hasCamera = await requestCameraPermission()
-    if (!hasCamera) {
+    if (!hasCamera || mode !== "check-in") {
       return
     }
 
@@ -481,6 +476,8 @@ export function SchedulesSection({
       URL.revokeObjectURL(capturedPhotoUrl)
       setCapturedPhotoUrl(null)
     }
+
+    await requestCaptureAccess(mode)
   }
 
   const closeCaptureDialog = () => {
@@ -538,7 +535,6 @@ export function SchedulesSection({
     }
     if (!capturedPhoto) {
       setError("Please capture a photo first.")
-      toast.error("Attendance submit failed", { description: "Please capture a photo first." })
       return
     }
 
@@ -549,9 +545,6 @@ export function SchedulesSection({
       if (captureMode === "check-in") {
         if (!checkInLocation.trim()) {
           setError("Location is required for check-in.")
-          toast.error("Attendance submit failed", {
-            description: "Location is required for check-in.",
-          })
           return
         }
 
@@ -565,9 +558,6 @@ export function SchedulesSection({
       } else {
         if (!activeCaptureSchedule.check_in_id) {
           setError("Check-in record is missing for this schedule.")
-          toast.error("Attendance submit failed", {
-            description: "Check-in record is missing for this schedule.",
-          })
           return
         }
 
@@ -582,7 +572,6 @@ export function SchedulesSection({
       toast.success(captureMode === "check-in" ? "Check in submitted" : "Check out submitted")
     } catch (submitError) {
       setError(parseApiError(submitError))
-      notifySubmitError(submitError, "Attendance submit failed")
     } finally {
       setIsSubmittingCapture(false)
     }
@@ -1006,11 +995,6 @@ export function SchedulesSection({
             <div className="space-y-2">
               <video ref={videoRef} autoPlay muted playsInline className="w-full rounded-lg border border-border bg-black/80" />
               <canvas ref={canvasRef} className="hidden" />
-              {captureMode === "check-in" && !(cameraStatus === "granted" && locationStatus === "granted") ? (
-                <Button type="button" variant="secondary" onClick={() => void requestCapturePermissions()}>
-                  Enable camera and location
-                </Button>
-              ) : null}
               <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                 <Button type="button" variant="outline" onClick={() => void restartCamera()}>
                   Restart camera
