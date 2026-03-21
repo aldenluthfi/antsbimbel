@@ -34,6 +34,20 @@ class ScheduleViewSet(viewsets.ModelViewSet):
         Schedule.STATUS_RESCHEDULED,
     }
 
+    @staticmethod
+    def _local_day_start(day_value):
+        return timezone.make_aware(
+            datetime.combine(day_value, datetime.min.time()),
+            timezone.get_current_timezone(),
+        )
+
+    @classmethod
+    def _local_date_range_kwargs(cls, start_date, end_date):
+        return {
+            'scheduled_at__gte': cls._local_day_start(start_date),
+            'scheduled_at__lt': cls._local_day_start(end_date + timedelta(days=1)),
+        }
+
     @extend_schema(parameters=SCHEDULE_LIST_QUERY_PARAMETERS)
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
@@ -107,16 +121,15 @@ class ScheduleViewSet(viewsets.ModelViewSet):
             previous_cursor_date = period_start - timedelta(days=1)
             next_cursor_date = next_month_start
         else:
-            start_offset = cursor_date.weekday() + 1 if cursor_date.weekday() < 6 else 0
-            period_start = cursor_date - timedelta(days=start_offset)
+            # Week view is Monday-Sunday to match the frontend calendar board.
+            period_start = cursor_date - timedelta(days=cursor_date.weekday())
             period_end = period_start + timedelta(days=6)
             previous_cursor_date = period_start - timedelta(days=7)
             next_cursor_date = period_start + timedelta(days=7)
 
         order_by_field = sort_by if sort_order == 'asc' else f'-{sort_by}'
         period_queryset = queryset.filter(
-            scheduled_at__date__gte=period_start,
-            scheduled_at__date__lte=period_end,
+            **self._local_date_range_kwargs(period_start, period_end)
         ).order_by(order_by_field)
 
         serializer = self.get_serializer(period_queryset, many=True)
@@ -159,13 +172,13 @@ class ScheduleViewSet(viewsets.ModelViewSet):
             start_date = parse_date(start_date_param)
             if not start_date:
                 raise ValidationError({'start_date': 'Invalid date format. Use YYYY-MM-DD or ISO datetime.'})
-            queryset = queryset.filter(scheduled_at__date__gte=start_date)
+            queryset = queryset.filter(scheduled_at__gte=self._local_day_start(start_date))
 
         if end_date_param:
             end_date = parse_date(end_date_param)
             if not end_date:
                 raise ValidationError({'end_date': 'Invalid date format. Use YYYY-MM-DD or ISO datetime.'})
-            queryset = queryset.filter(scheduled_at__date__lte=end_date)
+            queryset = queryset.filter(scheduled_at__lt=self._local_day_start(end_date + timedelta(days=1)))
 
         if status_param:
             status_value = status_param.strip().lower()

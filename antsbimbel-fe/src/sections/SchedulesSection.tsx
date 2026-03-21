@@ -367,26 +367,57 @@ export function SchedulesSection({
     }
   }
 
-  const isCameraPermissionDeniedError = (error: unknown) => {
-    if (!(error instanceof DOMException)) {
+  const requestCameraPermission = async () => {
+    if (typeof window === "undefined" || !("mediaDevices" in navigator)) {
+      setCameraStatus("denied")
+      setError("Camera is not available in this browser/device.")
       return false
     }
 
-    return error.name === "NotAllowedError" || error.name === "SecurityError"
-  }
+    setCameraStatus("idle")
 
-  const isCameraConstraintError = (error: unknown) => {
-    if (!(error instanceof DOMException)) {
+    try {
+      stopCamera()
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } },
+        audio: false,
+      })
+
+      cameraStreamRef.current = stream
+      setCameraStatus("granted")
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+        await videoRef.current.play()
+      }
+
+      return true
+    } catch (cameraError) {
+      if (cameraError instanceof DOMException && cameraError.name === "OverconstrainedError") {
+        try {
+          const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+          cameraStreamRef.current = fallbackStream
+          setCameraStatus("granted")
+          if (videoRef.current) {
+            videoRef.current.srcObject = fallbackStream
+            await videoRef.current.play()
+          }
+          return true
+        } catch {
+          // Fall through to denied state below.
+        }
+      }
+
+      setCameraStatus("denied")
+      setError("Camera permission was denied. Please allow camera access and retry.")
       return false
     }
-
-    return error.name === "OverconstrainedError" || error.name === "NotFoundError"
   }
 
-  const requestCurrentLocation = async () => {
-    const isBrowser = typeof window !== "undefined"
-    if (!isBrowser || !("geolocation" in navigator)) {
+  const requestLocationPermission = async () => {
+    if (typeof window === "undefined" || !("geolocation" in navigator)) {
       setLocationStatus("denied")
+      setError("Location is not available in this browser/device.")
       return false
     }
 
@@ -400,8 +431,12 @@ export function SchedulesSection({
           resolve(true)
         },
         (locationError) => {
-          setLocationStatus(
-            locationError.code === locationError.PERMISSION_DENIED ? "denied" : "idle"
+          const denied = locationError.code === locationError.PERMISSION_DENIED
+          setLocationStatus(denied ? "denied" : "idle")
+          setError(
+            denied
+              ? "Location permission was denied. Please allow location access and retry."
+              : "Unable to fetch current location. Please retry."
           )
           resolve(false)
         },
@@ -414,59 +449,14 @@ export function SchedulesSection({
     })
   }
 
-  const startCamera = async () => {
-    if (!("mediaDevices" in navigator)) {
-      setCameraStatus("denied")
-      return false
-    }
-
-    setCameraStatus("idle")
-
-    try {
-      stopCamera()
-      let stream: MediaStream
-
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: "environment" },
-          },
-        })
-      } catch (cameraError) {
-        if (!isCameraConstraintError(cameraError)) {
-          throw cameraError
-        }
-
-        stream = await navigator.mediaDevices.getUserMedia({ video: true })
-      }
-
-      cameraStreamRef.current = stream
-      setCameraStatus("granted")
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-        await videoRef.current.play()
-      }
-
-      return true
-    } catch (cameraError) {
-      setCameraStatus(isCameraPermissionDeniedError(cameraError) ? "denied" : "idle")
-      return false
-    }
-  }
-
   const restartCamera = async () => {
-    const hasCamera = await startCamera()
-    if (!hasCamera) {
-      setError("Camera permission is required to continue.")
-    }
+    setError("")
+    await requestCameraPermission()
   }
 
   const refreshCurrentLocation = async () => {
-    const hasLocation = await requestCurrentLocation()
-    if (!hasLocation) {
-      setError("Location permission is required for check-in.")
-    }
+    setError("")
+    await requestLocationPermission()
   }
 
   const openCaptureDialog = async (mode: "check-in" | "check-out", schedule: Schedule) => {
@@ -474,6 +464,7 @@ export function SchedulesSection({
     setActiveCaptureSchedule(schedule)
     setCaptureMode(mode)
     setCapturedPhoto(null)
+    setCheckInLocation("")
     setCameraStatus("idle")
     setLocationStatus("idle")
     if (capturedPhotoUrl) {
@@ -481,14 +472,13 @@ export function SchedulesSection({
       setCapturedPhotoUrl(null)
     }
 
-    const hasCamera = await startCamera()
+    const hasCamera = await requestCameraPermission()
     if (!hasCamera) {
-      setError("Camera permission is required to continue.")
       return
     }
 
     if (mode === "check-in") {
-      await requestCurrentLocation()
+      await requestLocationPermission()
     }
   }
 
