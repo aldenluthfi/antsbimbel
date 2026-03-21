@@ -115,17 +115,13 @@ export function CalendarBoard({
                         type="button"
                         onClick={() => onItemClick?.(item)}
                         className={cn(
-                          "w-full rounded-md border border-accent/20 bg-accent/10 px-1.5 py-1 text-left text-[11px] leading-tight",
-                          onItemClick ? "cursor-pointer hover:bg-accent/20" : "cursor-default"
+                          "w-full rounded-md border border-muted/70 bg-muted/60 px-1.5 py-1 text-left text-[11px] leading-tight",
+                          onItemClick ? "cursor-pointer" : "cursor-default",
+                          item.statusDotClassName
                         )}
                       >
                         <p className="font-medium">{item.studentName}</p>
-                        <p className="text-muted-foreground">{item.tutorName}</p>
-                        <span
-                          className={cn("mt-1 inline-block size-2.5 rounded-full", item.statusDotClassName)}
-                          title={item.statusLabel}
-                          aria-label={item.statusLabel}
-                        />
+                        <p>{item.tutorName}</p>
                       </button>
                     ))}
                     {dayItems.length > 3 ? (

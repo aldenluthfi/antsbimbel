@@ -15,5 +15,5 @@ export {
   getStudentFullName,
   getTutorFullName,
 } from "./names"
-export { getScheduleStatusDotClass, getScheduleStatusPresentation } from "./status"
+export { getScheduleStatusPresentation } from "./status"
 export type { CalendarItem, CalendarMode } from "./types"

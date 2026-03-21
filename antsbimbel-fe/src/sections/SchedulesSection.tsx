@@ -53,7 +53,6 @@ import {
   displayTutorName,
   formatDateTime,
   getCurrentWibDate,
-  getScheduleStatusDotClass,
   getScheduleStatusPresentation,
   REPORT_MONTH_OPTIONS,
   toDateInputValue,
@@ -561,7 +560,7 @@ export function SchedulesSection({
           studentName: displayStudentName(schedule),
           tutorName: displayTutorName(schedule),
           statusLabel: statusPresentation.label,
-          statusDotClassName: getScheduleStatusDotClass(schedule),
+          statusDotClassName: statusPresentation.className,
           date: toWibCalendarDate(schedule.scheduled_at),
           schedule,
         }
