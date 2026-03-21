@@ -167,7 +167,7 @@ CORS_ALLOWED_ORIGINS = [
     origin.strip()
     for origin in os.getenv(
         'CORS_ALLOWED_ORIGINS',
-        'http://localhost:5173,http://127.0.0.1:5173,http://localhost,http://127.0.0.1,https://antsbimbel.vps.webdock.cloud'
+        'http://localhost:5173,http://127.0.0.1:5173,http://localhost,http://127.0.0.1,http://antsbimbel.vps.webdock.cloud'
     ).split(',')
     if origin.strip()
 ]
