@@ -134,7 +134,7 @@ export function DateRangePickerInput({
             })
           }
           numberOfMonths={isDesktop ? 2 : 1}
-          initialFocus
+          autoFocus
         />
       </PopoverContent>
     </Popover>

@@ -162,7 +162,7 @@ export function UsersSection({ token }: { token: string }) {
   }
 
   return (
-    <section className="space-y-4 rounded-2xl border border-border/70 bg-card/70 p-4">
+    <section className="space-y-4 rounded-2xl border border-border bg-card p-4 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="text-lg font-semibold">Users</h3>
         <Button size="sm" onClick={() => setIsCreateOpen((open) => !open)}>
@@ -177,7 +177,7 @@ export function UsersSection({ token }: { token: string }) {
           setPage(1)
         }}
         placeholder="Search by ID or name"
-        className="h-9 md:max-w-sm"
+        className="h-9 w-full"
       />
 
       {isCreateOpen ? (
@@ -321,16 +321,16 @@ export function UsersSection({ token }: { token: string }) {
       </div>
 
       <div className="hidden overflow-x-auto rounded-xl border border-border md:block">
-        <table className="min-w-full text-sm">
+        <table className="min-w-full table-fixed text-sm">
           <thead className="bg-muted/70 text-left">
             <tr>
-              <th className="px-3 py-2">ID</th>
-              <th className="px-3 py-2">Username</th>
-              <th className="px-3 py-2">Name</th>
-              <th className="px-3 py-2">Role</th>
+              <th className="w-16 px-3 py-2">ID</th>
+              <th className="w-40 px-3 py-2">Username</th>
+              <th className="w-44 px-3 py-2">Name</th>
+              <th className="w-28 px-3 py-2">Role</th>
               <th className="px-3 py-2">Email</th>
-              <th className="px-3 py-2">Active</th>
-              <th className="px-3 py-2">Actions</th>
+              <th className="w-20 px-3 py-2">Active</th>
+              <th className="w-52 px-3 py-2">Actions</th>
             </tr>
           </thead>
           <tbody>

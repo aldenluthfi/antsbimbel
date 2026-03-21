@@ -1,6 +1,6 @@
 export function startOfWeek(date: Date): Date {
   const next = new Date(date)
-  const day = next.getDay()
+  const day = (next.getDay() + 6) % 7
   next.setDate(next.getDate() - day)
   next.setHours(0, 0, 0, 0)
   return next

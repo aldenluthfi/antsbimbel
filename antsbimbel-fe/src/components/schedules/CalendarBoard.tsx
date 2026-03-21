@@ -45,10 +45,10 @@ export function CalendarBoard({
     (item) => item.date >= visibleRange.start && item.date <= visibleRange.end
   )
 
-  const weekDays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+  const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
   return (
-    <section className="space-y-3 rounded-2xl border border-border/70 bg-background/70 p-3">
+    <section className="space-y-3 rounded-2xl border border-border bg-background p-3">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h4 className="font-semibold">{title}</h4>
       </div>
@@ -93,11 +93,11 @@ export function CalendarBoard({
       {mode === "month" ? (
         <div className="overflow-x-auto pb-1">
           <div className="grid min-w-180 grid-cols-7 gap-2">
-            {Array.from({ length: monthStart.getDay() }).map((_, index) => (
+            {Array.from({ length: (monthStart.getDay() + 6) % 7 }).map((_, index) => (
               <div
                 key={`empty-${index}`}
                 aria-hidden="true"
-                className="min-h-24 rounded-lg border border-dashed border-border/50 bg-transparent"
+                className="min-h-24 rounded-lg border border-dashed border-border bg-transparent"
               />
             ))}
             {Array.from({ length: monthEnd.getDate() }).map((_, index) => {
@@ -115,8 +115,8 @@ export function CalendarBoard({
                         type="button"
                         onClick={() => onItemClick?.(item)}
                         className={cn(
-                          "w-full rounded-md border border-primary/20 bg-primary/10 px-1.5 py-1 text-left text-[11px] leading-tight",
-                          onItemClick ? "cursor-pointer hover:bg-primary/20" : "cursor-default"
+                          "w-full rounded-md border border-accent/20 bg-accent/10 px-1.5 py-1 text-left text-[11px] leading-tight",
+                          onItemClick ? "cursor-pointer hover:bg-accent/20" : "cursor-default"
                         )}
                       >
                         <p className="font-medium">{item.studentName}</p>
@@ -135,6 +135,13 @@ export function CalendarBoard({
                 </div>
               )
             })}
+            {Array.from({ length: (7 - monthEnd.getDay()) % 7 }).map((_, index) => (
+              <div
+                key={`empty-${index}`}
+                aria-hidden="true"
+                className="min-h-24 rounded-lg border border-dashed border-border bg-transparent"
+              />
+            ))}
           </div>
         </div>
       ) : (

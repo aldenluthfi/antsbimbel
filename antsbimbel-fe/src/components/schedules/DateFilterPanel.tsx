@@ -41,8 +41,11 @@ export function DateFilterPanel({
   const filterGridColumnsClass = showTutor ? "md:grid-cols-4" : "md:grid-cols-3"
 
   return (
-    <div className="space-y-3 rounded-2xl border border-border/70 bg-background/70 p-3">
-      <div className="space-y-3 rounded-xl border border-border/70 bg-card/70 p-3">
+    <>
+      <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+        Sort and filter
+      </p>
+      <div className="space-y-3 rounded-xl border border-border bg-card p-3">
         <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
           Filters
         </p>
@@ -108,7 +111,7 @@ export function DateFilterPanel({
         </div>
       </div>
 
-      <div className="space-y-3 rounded-xl border border-border/70 bg-card/70 p-3">
+      <div className="space-y-3 rounded-xl border border-border bg-card p-3">
         <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
           Sort
         </p>
@@ -141,6 +144,6 @@ export function DateFilterPanel({
           </label>
         </div>
       </div>
-    </div>
+    </>
   )
 }

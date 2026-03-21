@@ -570,7 +570,7 @@ export function SchedulesSection({
   )
 
   return (
-    <section className="space-y-4 rounded-2xl border border-border/70 bg-card/70 p-4">
+    <section className="space-y-4 rounded-2xl border border-border bg-card p-4 shadow-sm">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h3 className="text-lg font-semibold">Schedules</h3>
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
@@ -595,91 +595,94 @@ export function SchedulesSection({
           ) : null}
         </div>
       </div>
+      <section className="space-y-3 rounded-2xl border border-border bg-background p-3">
+        <DateFilterPanel
+          value={filters}
+          onChange={(next) => {
+            setPage(1)
+            setFilters(tutorId ? { ...next, tutorId: String(tutorId) } : next)
+          }}
+          showTutor={!tutorId}
+          tutors={tutors}
+          students={students}
+          canPickStudent
+          status={statusFilter}
+          onStatusChange={(next) => {
+            setPage(1)
+            setStatusFilter(next)
+          }}
+          sortBy={sortBy}
+          onSortByChange={(next) => {
+            setPage(1)
+            setSortBy(next)
+          }}
+          sortOrder={sortOrder}
+          onSortOrderChange={(next) => {
+            setPage(1)
+            setSortOrder(next)
+          }}
+        />
 
-      <DateFilterPanel
-        value={filters}
-        onChange={(next) => {
-          setPage(1)
-          setFilters(tutorId ? { ...next, tutorId: String(tutorId) } : next)
-        }}
-        showTutor={!tutorId}
-        tutors={tutors}
-        students={students}
-        canPickStudent
-        status={statusFilter}
-        onStatusChange={(next) => {
-          setPage(1)
-          setStatusFilter(next)
-        }}
-        sortBy={sortBy}
-        onSortByChange={(next) => {
-          setPage(1)
-          setSortBy(next)
-        }}
-        sortOrder={sortOrder}
-        onSortOrderChange={(next) => {
-          setPage(1)
-          setSortOrder(next)
-        }}
-      />
-
-      {canManage ? (
-        <section className="space-y-3 rounded-xl border border-border bg-background p-3">
-          <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
-            Report
-          </p>
-          <div className="grid gap-3 md:grid-cols-3 md:items-end">
-            <label className="space-y-2 text-sm">
-              <span className="font-medium">Month</span>
-              <Select
-                value={reportMonthParts.month}
-                onValueChange={(nextMonth) =>
-                  setReportMonth(`${reportMonthParts.year}-${nextMonth}`)
-                }
-              >
-                <SelectTrigger className="h-9 w-full">
-                  <SelectValue placeholder="Select month" />
-                </SelectTrigger>
-                <SelectContent>
-                  {REPORT_MONTH_OPTIONS.map((monthOption) => (
-                    <SelectItem key={monthOption.value} value={monthOption.value}>
-                      {monthOption.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </label>
-            <label className="space-y-2 text-sm">
-              <span className="font-medium">Year</span>
-              <Select
-                value={reportMonthParts.year}
-                onValueChange={(nextYear) =>
-                  setReportMonth(`${nextYear}-${reportMonthParts.month}`)
-                }
-              >
-                <SelectTrigger className="h-9 w-full">
-                  <SelectValue placeholder="Select year" />
-                </SelectTrigger>
-                <SelectContent>
-                  {reportYearOptions.map((yearOption) => (
-                    <SelectItem key={yearOption} value={yearOption}>
-                      {yearOption}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </label>
-            <Button
-              type="button"
-              onClick={() => void generateMonthlyReport()}
-              disabled={isGeneratingReport}
-              className="w-full md:w-auto md:self-end"
-            >
-              {isGeneratingReport ? "Generating..." : "Generate report"}
-            </Button>
-          </div>
-        </section>
-      ) : null}
+        {canManage ? (
+          <>
+            <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+              Generate Report
+            </p>
+            <div className="space-y-3 rounded-xl border border-border bg-card p-3">
+              <div className="grid gap-3 md:grid-cols-3 md:items-end">
+                <label className="space-y-2 text-sm">
+                  <span className="font-medium">Month</span>
+                  <Select
+                    value={reportMonthParts.month}
+                    onValueChange={(nextMonth) =>
+                      setReportMonth(`${reportMonthParts.year}-${nextMonth}`)
+                    }
+                  >
+                    <SelectTrigger className="h-9 w-full">
+                      <SelectValue placeholder="Select month" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {REPORT_MONTH_OPTIONS.map((monthOption) => (
+                        <SelectItem key={monthOption.value} value={monthOption.value}>
+                          {monthOption.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </label>
+                <label className="space-y-2 text-sm">
+                  <span className="font-medium">Year</span>
+                  <Select
+                    value={reportMonthParts.year}
+                    onValueChange={(nextYear) =>
+                      setReportMonth(`${nextYear}-${reportMonthParts.month}`)
+                    }
+                  >
+                    <SelectTrigger className="h-9 w-full">
+                      <SelectValue placeholder="Select year" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {reportYearOptions.map((yearOption) => (
+                        <SelectItem key={yearOption} value={yearOption}>
+                          {yearOption}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </label>
+                <Button
+                  type="button"
+                  onClick={() => void generateMonthlyReport()}
+                  disabled={isGeneratingReport}
+                  className="w-full md:w-auto md:self-end"
+                >
+                  {isGeneratingReport ? "Generating..." : "Generate report"}
+                </Button>
+              </div>
+            </div>
+          </>
+        ) : null}
+      </section>
 
       {loading ? <p className="text-sm text-muted-foreground">Loading schedules...</p> : null}
 
@@ -847,18 +850,18 @@ export function SchedulesSection({
       </div>
 
       <div className="hidden overflow-x-auto rounded-xl border border-border md:block">
-        <table className="min-w-full text-sm">
+        <table className="min-w-full table-fixed text-sm">
           <thead className="bg-muted/70 text-left">
             <tr>
-              <th className="px-3 py-2">ID</th>
-              <th className="px-3 py-2">Tutor</th>
-              <th className="px-3 py-2">Student</th>
-              <th className="px-3 py-2">Topic</th>
-              <th className="px-3 py-2">Datetime</th>
-              <th className="px-3 py-2">Status</th>
-              <th className="px-3 py-2">Check In</th>
-              <th className="px-3 py-2">Check Out</th>
-              {canManage ? <th className="px-3 py-2">Actions</th> : null}
+              <th className="w-16 px-3 py-2">ID</th>
+              <th className="w-36 px-3 py-2">Tutor</th>
+              <th className="w-36 px-3 py-2">Student</th>
+              <th className="w-32 px-3 py-2">Topic</th>
+              <th className="w-40 px-3 py-2">Datetime</th>
+              <th className="w-28 px-3 py-2">Status</th>
+              <th className="w-24 px-3 py-2">Check In</th>
+              <th className="w-24 px-3 py-2">Check Out</th>
+              {canManage ? <th className="w-28 px-3 py-2">Actions</th> : null}
             </tr>
           </thead>
           <tbody>

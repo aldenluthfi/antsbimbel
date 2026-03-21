@@ -28,8 +28,8 @@ export function LoginPage({ onLogin }: { onLogin: (session: Session) => void }) 
   }
 
   return (
-    <main className="relative flex min-h-svh items-center justify-center bg-[radial-gradient(circle_at_15%_20%,rgba(240,210,120,0.26),transparent_45%),radial-gradient(circle_at_85%_80%,rgba(42,132,122,0.28),transparent_55%)] p-4 md:p-10">
-      <section className="w-full max-w-md rounded-3xl border border-border/60 bg-card/80 p-6 shadow-lg backdrop-blur md:p-8">
+    <main className="relative flex min-h-svh items-center justify-center bg-background p-4 md:p-10">
+      <section className="w-full max-w-md rounded-3xl border border-border bg-card p-6 shadow-sm md:p-8">
         <p className="mb-2 text-xs font-medium tracking-[0.22em] text-muted-foreground uppercase">
           ANTS BIMBEL
         </p>

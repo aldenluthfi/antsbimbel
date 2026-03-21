@@ -20,9 +20,9 @@ export function DashboardPage({
   const [activeTab, setActiveTab] = useState<DashboardTab>(isAdmin ? "users" : "schedules")
 
   return (
-    <main className="min-h-svh bg-[radial-gradient(circle_at_8%_15%,rgba(60,120,230,0.16),transparent_36%),radial-gradient(circle_at_85%_5%,rgba(219,129,66,0.2),transparent_44%),radial-gradient(circle_at_90%_85%,rgba(39,172,130,0.14),transparent_38%)] p-3 md:p-6">
+    <main className="min-h-svh bg-background p-3 md:p-6">
       <div className="mx-auto max-w-7xl space-y-4">
-        <header className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-card/80 p-4 backdrop-blur sm:flex-row sm:items-center sm:justify-between">
+        <header className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-xs font-medium tracking-[0.22em] text-muted-foreground uppercase">
               ANTS BIMBEL PORTAL
@@ -43,7 +43,7 @@ export function DashboardPage({
         </header>
 
         {isAdmin ? (
-          <nav className="grid grid-cols-1 gap-2 rounded-2xl border border-border/70 bg-card/70 p-3 sm:grid-cols-3">
+          <nav className="grid grid-cols-1 gap-2 rounded-2xl border border-border bg-card p-3 shadow-sm sm:grid-cols-3">
             <Button
               variant={activeTab === "users" ? "default" : "outline"}
               size="sm"
