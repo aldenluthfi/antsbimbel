@@ -11,12 +11,14 @@ export function TutorCombobox({
   tutors,
   value,
   onChange,
+  onSearchQueryChange,
   disabled,
   placeholder,
 }: {
   tutors: ApiUser[]
   value: string
   onChange: (value: string) => void
+  onSearchQueryChange?: (value: string) => void
   disabled?: boolean
   placeholder?: string
 }) {
@@ -41,7 +43,16 @@ export function TutorCombobox({
   }, [query, tutors])
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen)
+        if (!nextOpen) {
+          setQuery("")
+          onSearchQueryChange?.("")
+        }
+      }}
+    >
       <PopoverTrigger asChild>
         <Button
           type="button"
@@ -62,7 +73,11 @@ export function TutorCombobox({
       <PopoverContent className="w-(--radix-popover-trigger-width) p-2" align="start">
         <Input
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={(event) => {
+            const nextQuery = event.target.value
+            setQuery(nextQuery)
+            onSearchQueryChange?.(nextQuery)
+          }}
           placeholder="Search by ID or name"
           className="h-9"
         />
@@ -81,6 +96,7 @@ export function TutorCombobox({
                     onChange(String(tutor.id))
                     setOpen(false)
                     setQuery("")
+                    onSearchQueryChange?.("")
                   }}
                   className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-muted"
                 >
@@ -103,12 +119,14 @@ export function StudentCombobox({
   students,
   value,
   onChange,
+  onSearchQueryChange,
   disabled,
   placeholder,
 }: {
   students: Student[]
   value: string
   onChange: (value: string) => void
+  onSearchQueryChange?: (value: string) => void
   disabled?: boolean
   placeholder?: string
 }) {
@@ -131,7 +149,16 @@ export function StudentCombobox({
   }, [query, students])
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen)
+        if (!nextOpen) {
+          setQuery("")
+          onSearchQueryChange?.("")
+        }
+      }}
+    >
       <PopoverTrigger asChild>
         <Button
           type="button"
@@ -152,7 +179,11 @@ export function StudentCombobox({
       <PopoverContent className="w-(--radix-popover-trigger-width) p-2" align="start">
         <Input
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={(event) => {
+            const nextQuery = event.target.value
+            setQuery(nextQuery)
+            onSearchQueryChange?.(nextQuery)
+          }}
           placeholder="Search by ID or name"
           className="h-9"
         />
@@ -171,6 +202,7 @@ export function StudentCombobox({
                     onChange(String(student.id))
                     setOpen(false)
                     setQuery("")
+                    onSearchQueryChange?.("")
                   }}
                   className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-muted"
                 >

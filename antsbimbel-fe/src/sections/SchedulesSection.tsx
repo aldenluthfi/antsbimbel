@@ -73,6 +73,8 @@ export function SchedulesSection({
   const [filters, setFilters] = useState<DateFilters>(
     tutorId ? { ...DEFAULT_FILTERS, tutorId: String(tutorId) } : DEFAULT_FILTERS
   )
+  const [tutorSearchQuery, setTutorSearchQuery] = useState("")
+  const [studentSearchQuery, setStudentSearchQuery] = useState("")
   const [tutors, setTutors] = useState<ApiUser[]>([])
   const [students, setStudents] = useState<Student[]>([])
   const [schedules, setSchedules] = useState<Schedule[]>([])
@@ -182,28 +184,50 @@ export function SchedulesSection({
 
     const fetchTutors = async () => {
       try {
-        const response = await usersApi.list(token, 1, 100)
-        setTutors(response.results)
+        const nextTutors: ApiUser[] = []
+        let nextPage = 1
+        let hasNext = true
+
+        while (hasNext && nextPage <= 50) {
+          const response = await usersApi.list(token, nextPage, 50, tutorSearchQuery)
+          nextTutors.push(...response.results)
+          hasNext = Boolean(response.next)
+          nextPage += 1
+        }
+
+        setTutors(nextTutors)
       } catch {
         // Fallback to empty options if tutor fetch fails.
+        setTutors([])
       }
     }
 
     void fetchTutors()
-  }, [token, tutorId])
+  }, [token, tutorId, tutorSearchQuery])
 
   useEffect(() => {
     const fetchStudents = async () => {
       try {
-        const response = await studentsApi.list(token, 1, 100)
-        setStudents(response.results)
+        const nextStudents: Student[] = []
+        let nextPage = 1
+        let hasNext = true
+
+        while (hasNext && nextPage <= 50) {
+          const response = await studentsApi.list(token, nextPage, 50, studentSearchQuery)
+          nextStudents.push(...response.results)
+          hasNext = Boolean(response.next)
+          nextPage += 1
+        }
+
+        setStudents(nextStudents)
       } catch {
         // Fallback to empty options if student fetch fails.
+        setStudents([])
       }
     }
 
     void fetchStudents()
-  }, [token])
+  }, [token, studentSearchQuery])
 
   useEffect(() => {
     return () => {
@@ -639,6 +663,8 @@ export function SchedulesSection({
           tutors={tutors}
           students={students}
           canPickStudent
+          onTutorSearchQueryChange={setTutorSearchQuery}
+          onStudentSearchQueryChange={setStudentSearchQuery}
           status={statusFilter}
           onStatusChange={(next) => {
             setPage(1)

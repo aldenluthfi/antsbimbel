@@ -18,6 +18,8 @@ export function DateFilterPanel({
   tutors,
   students,
   canPickStudent,
+  onTutorSearchQueryChange,
+  onStudentSearchQueryChange,
   status,
   onStatusChange,
   sortBy,
@@ -31,6 +33,8 @@ export function DateFilterPanel({
   tutors: ApiUser[]
   students?: Student[]
   canPickStudent?: boolean
+  onTutorSearchQueryChange?: (query: string) => void
+  onStudentSearchQueryChange?: (query: string) => void
   status: ScheduleStatusFilter
   onStatusChange: (next: ScheduleStatusFilter) => void
   sortBy: ScheduleSortBy
@@ -57,6 +61,7 @@ export function DateFilterPanel({
                 tutors={tutors}
                 value={value.tutorId}
                 onChange={(nextTutorId) => onChange({ ...value, tutorId: nextTutorId })}
+                onSearchQueryChange={onTutorSearchQueryChange}
                 placeholder="Select tutor"
               />
             </label>
@@ -69,6 +74,7 @@ export function DateFilterPanel({
                 students={students ?? []}
                 value={value.studentId}
                 onChange={(nextStudentId) => onChange({ ...value, studentId: nextStudentId })}
+                onSearchQueryChange={onStudentSearchQueryChange}
                 placeholder="Select student"
               />
             </label>
