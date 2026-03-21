@@ -10,14 +10,14 @@ services:
       - antsbimbel_db:/data
       - antsbimbel_media:/app/media
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
 
   frontend:
     build:
       context: ./antsbimbel-fe
       dockerfile: Dockerfile
       args:
-        VITE_API_BASE_URL: http://antsbimbel.vps.webdock.cloud:8000/api
+        VITE_API_BASE_URL: /api
     container_name: antsbimbel-frontend
     depends_on:
       - backend

@@ -48,6 +48,9 @@ DEBUG = True
 
 ALLOWED_HOSTS = [ 'antsbimbel.vps.webdock.cloud' ]
 
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+USE_X_FORWARDED_HOST = True
+
 
 # Application definition
 
@@ -167,11 +170,20 @@ CORS_ALLOWED_ORIGINS = [
     origin.strip()
     for origin in os.getenv(
         'CORS_ALLOWED_ORIGINS',
-        'http://localhost:5173,http://127.0.0.1:5173,http://localhost,http://127.0.0.1,http://antsbimbel.vps.webdock.cloud'
+        'http://localhost:5173,http://127.0.0.1:5173,http://localhost,http://127.0.0.1,http://antsbimbel.vps.webdock.cloud,https://antsbimbel.vps.webdock.cloud'
     ).split(',')
     if origin.strip()
 ]
 CORS_ALLOW_CREDENTIALS = True
+
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv(
+        'CSRF_TRUSTED_ORIGINS',
+        'https://antsbimbel.vps.webdock.cloud,http://localhost:5173,http://127.0.0.1:5173'
+    ).split(',')
+    if origin.strip()
+]
 
 GOOGLE_DRIVE_PARENT_FOLDER_ID = os.getenv('GOOGLE_DRIVE_PARENT_FOLDER_ID', '').strip()
 GOOGLE_DRIVE_SHARED_DRIVE_ID = os.getenv('GOOGLE_DRIVE_SHARED_DRIVE_ID', '').strip()
