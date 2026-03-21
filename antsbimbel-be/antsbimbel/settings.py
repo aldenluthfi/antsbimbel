@@ -46,7 +46,7 @@ SECRET_KEY = 'django-insecure-sh8dyt283zx11f$c-u7o3xa@p#eqm@4#r+7j95)&(5r5k%n@&7
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [ 'antsbimbel.vps.webdock.cloud' ]
 
 
 # Application definition
@@ -167,7 +167,7 @@ CORS_ALLOWED_ORIGINS = [
     origin.strip()
     for origin in os.getenv(
         'CORS_ALLOWED_ORIGINS',
-        'http://localhost:5173,http://127.0.0.1:5173,http://localhost,http://127.0.0.1'
+        'http://localhost:5173,http://127.0.0.1:5173,http://localhost,http://127.0.0.1,http://antsbimbel.vps.webdock.cloud'
     ).split(',')
     if origin.strip()
 ]
