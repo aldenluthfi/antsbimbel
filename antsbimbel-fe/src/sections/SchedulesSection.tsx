@@ -975,81 +975,84 @@ export function SchedulesSection({
       </div>
 
       {!canManage && activeCaptureSchedule && captureMode ? (
-        <section className="space-y-3 rounded-xl border border-border bg-background p-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h4 className="font-semibold capitalize">
-              {captureMode} for schedule #{activeCaptureSchedule.id}
-            </h4>
+        <Dialog open onOpenChange={(open) => (!open ? closeCaptureDialog() : null)}>
+          <DialogContent className="max-h-[90svh] w-[95vw] max-w-3xl overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="capitalize">
+                {captureMode} for schedule #{activeCaptureSchedule.id}
+              </DialogTitle>
+              <DialogDescription>
+                Capture a live photo using camera. File upload is disabled for this action.
+              </DialogDescription>
+            </DialogHeader>
+
             <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
               <span className="rounded-full bg-muted px-2 py-1">Camera: {cameraStatus}</span>
               {captureMode === "check-in" ? (
                 <span className="rounded-full bg-muted px-2 py-1">Location: {locationStatus}</span>
               ) : null}
             </div>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            Capture a live photo using camera. File upload is disabled for this action.
-          </p>
 
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="space-y-2">
-              <video ref={videoRef} autoPlay muted playsInline className="w-full rounded-lg border border-border bg-black/80" />
-              <canvas ref={canvasRef} className="hidden" />
-              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-                <Button type="button" variant="outline" onClick={() => void restartCamera()}>
-                  Restart camera
-                </Button>
-                <Button type="button" onClick={captureFromCamera}>
-                  Capture photo
-                </Button>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              {capturedPhotoUrl ? (
-                <img
-                  src={capturedPhotoUrl}
-                  alt="Captured attendance"
-                  className="w-full rounded-lg border border-border object-cover"
-                />
-              ) : (
-                <div className="flex min-h-40 items-center justify-center rounded-lg border border-dashed border-border text-sm text-muted-foreground">
-                  No photo captured yet.
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-2">
+                <video ref={videoRef} autoPlay muted playsInline className="w-full rounded-lg border border-border bg-black/80" />
+                <canvas ref={canvasRef} className="hidden" />
+                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                  <Button type="button" variant="outline" onClick={() => void restartCamera()}>
+                    Restart camera
+                  </Button>
+                  <Button type="button" onClick={captureFromCamera}>
+                    Capture photo
+                  </Button>
                 </div>
-              )}
+              </div>
 
-              {captureMode === "check-in" ? (
-                <div className="space-y-2">
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <Input
-                      required
-                      value={checkInLocation}
-                      onChange={(event) => setCheckInLocation(event.target.value)}
-                      placeholder="Latitude, Longitude"
-                      className="h-9"
-                    />
-                    <Button type="button" variant="outline" onClick={() => void refreshCurrentLocation()}>
-                      <MapPin className="size-4" />
-                    </Button>
+              <div className="space-y-2">
+                {capturedPhotoUrl ? (
+                  <img
+                    src={capturedPhotoUrl}
+                    alt="Captured attendance"
+                    className="w-full rounded-lg border border-border object-cover"
+                  />
+                ) : (
+                  <div className="flex min-h-40 items-center justify-center rounded-lg border border-dashed border-border text-sm text-muted-foreground">
+                    No photo captured yet.
                   </div>
-                </div>
-              ) : null}
+                )}
 
-              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-                <Button
-                  type="button"
-                  disabled={isSubmittingCapture}
-                  onClick={() => void submitCapturedAttendance()}
-                >
-                  {isSubmittingCapture ? "Submitting..." : captureMode === "check-in" ? "Submit check in" : "Submit check out"}
-                </Button>
-                <Button type="button" variant="outline" onClick={closeCaptureDialog}>
-                  Cancel
-                </Button>
+                {captureMode === "check-in" ? (
+                  <div className="space-y-2">
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <Input
+                        required
+                        value={checkInLocation}
+                        onChange={(event) => setCheckInLocation(event.target.value)}
+                        placeholder="Latitude, Longitude"
+                        className="h-9"
+                      />
+                      <Button type="button" variant="outline" onClick={() => void refreshCurrentLocation()}>
+                        <MapPin className="size-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                  <Button
+                    type="button"
+                    disabled={isSubmittingCapture}
+                    onClick={() => void submitCapturedAttendance()}
+                  >
+                    {isSubmittingCapture ? "Submitting..." : captureMode === "check-in" ? "Submit check in" : "Submit check out"}
+                  </Button>
+                  <Button type="button" variant="outline" onClick={closeCaptureDialog}>
+                    Cancel
+                  </Button>
+                </div>
               </div>
             </div>
-          </div>
-        </section>
+          </DialogContent>
+        </Dialog>
       ) : null}
 
       {detailDialogState ? (
