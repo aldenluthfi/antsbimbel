@@ -4,6 +4,8 @@ services:
       context: ./antsbimbel-be
       dockerfile: Dockerfile
     container_name: antsbimbel-backend
+    env_file:
+      - ./antsbimbel-be/.env
     environment:
       SQLITE_PATH: /data/db.sqlite3
     volumes:

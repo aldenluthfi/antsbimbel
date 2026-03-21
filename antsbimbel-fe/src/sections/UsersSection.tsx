@@ -36,11 +36,6 @@ export function UsersSection({ token }: { token: string }) {
     is_active: true,
   })
 
-  const generatedPasswordPreview = [createForm.first_name, createForm.last_name]
-    .map((value) => value.trim().toLowerCase().replace(/[^a-z0-9]/g, ""))
-    .filter(Boolean)
-    .join(".")
-
   const fetchUsers = async () => {
     setLoading(true)
     setError("")
@@ -206,14 +201,6 @@ export function UsersSection({ token }: { token: string }) {
             placeholder="Email"
             className="h-9 rounded-lg border border-border px-3 text-sm"
           />
-          {generatedPasswordPreview ? (
-            <p className="col-span-full text-xs text-muted-foreground">
-              Generated password: {generatedPasswordPreview}
-            </p>
-          ) : null}
-          <p className="col-span-full text-xs text-muted-foreground">
-            Password is auto-generated in this format: firstname.lastname
-          </p>
           <label className="col-span-full flex items-center gap-2 text-sm">
             <input
               type="checkbox"
