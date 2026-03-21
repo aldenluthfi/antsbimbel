@@ -17,7 +17,7 @@ services:
       context: ./antsbimbel-fe
       dockerfile: Dockerfile
       args:
-        VITE_API_BASE_URL: http://localhost:8000/api
+        VITE_API_BASE_URL: http://antsbimbel.vps.webdock.cloud:8000/api
     container_name: antsbimbel-frontend
     depends_on:
       - backend
