@@ -25,15 +25,34 @@ class UserSerializer(serializers.ModelSerializer):
         ]
 
     def validate_password(self, value):
-        validate_password(value)
+        if self.instance is not None:
+            validate_password(value, user=self.instance)
         return value
+
+    @staticmethod
+    def _normalize_password_part(value):
+        return ''.join(char for char in (value or '').strip().lower() if char.isalnum())
+
+    def _build_generated_password(self, validated_data):
+        first_name = self._normalize_password_part(validated_data.get('first_name'))
+        last_name = self._normalize_password_part(validated_data.get('last_name'))
+
+        errors = {}
+        if not first_name:
+            errors['first_name'] = 'First name is required to generate account password.'
+        if not last_name:
+            errors['last_name'] = 'Last name is required to generate account password.'
+        if errors:
+            raise serializers.ValidationError(errors)
+
+        return f'{first_name}.{last_name}'
 
     def _apply_tutor_role(self, instance):
         instance.is_staff = False
         instance.is_superuser = False
 
     def create(self, validated_data):
-        password = validated_data.pop('password', None)
+        validated_data.pop('password', None)
         email = (validated_data.get('email') or '').strip()
 
         if not email:
@@ -42,12 +61,7 @@ class UserSerializer(serializers.ModelSerializer):
         user = User(**validated_data)
         self._apply_tutor_role(user)
 
-        generated_password = False
-        if not password:
-            password = User.objects.make_random_password(length=12)
-            generated_password = True
-
-        validate_password(password, user=user)
+        password = self._build_generated_password(validated_data)
         user.set_password(password)
 
         with transaction.atomic():
@@ -58,13 +72,12 @@ class UserSerializer(serializers.ModelSerializer):
                 gmail_sender.send_new_user_credentials_email(
                     to_email=email,
                     username=user.username,
+                    first_name=user.first_name,
+                    last_name=user.last_name,
                     password=password,
                 )
             except GoogleGmailSendError as exc:
-                message = 'Failed to send credentials email to the new user.'
-                if generated_password:
-                    message += ' A temporary password was generated but not delivered.'
-                raise serializers.ValidationError({'detail': f'{message} {exc}'}) from exc
+                raise serializers.ValidationError({'detail': f'Failed to send credentials email to the new user. {exc}'}) from exc
 
         return user
 

@@ -26,7 +26,6 @@ export function UsersSection({ token }: { token: string }) {
     first_name: "",
     last_name: "",
     email: "",
-    password: "",
     is_active: true,
   })
   const [editForm, setEditForm] = useState({
@@ -34,9 +33,13 @@ export function UsersSection({ token }: { token: string }) {
     first_name: "",
     last_name: "",
     email: "",
-    password: "",
     is_active: true,
   })
+
+  const generatedPasswordPreview = [createForm.first_name, createForm.last_name]
+    .map((value) => value.trim().toLowerCase().replace(/[^a-z0-9]/g, ""))
+    .filter(Boolean)
+    .join(".")
 
   const fetchUsers = async () => {
     setLoading(true)
@@ -70,7 +73,6 @@ export function UsersSection({ token }: { token: string }) {
         first_name: "",
         last_name: "",
         email: "",
-        password: "",
         is_active: true,
       })
       await fetchUsers()
@@ -89,7 +91,6 @@ export function UsersSection({ token }: { token: string }) {
       first_name: user.first_name,
       last_name: user.last_name,
       email: user.email,
-      password: "",
       is_active: user.is_active,
     })
   }
@@ -101,7 +102,6 @@ export function UsersSection({ token }: { token: string }) {
       first_name: "",
       last_name: "",
       email: "",
-      password: "",
       is_active: true,
     })
   }
@@ -121,11 +121,6 @@ export function UsersSection({ token }: { token: string }) {
       last_name: editForm.last_name,
       email: editForm.email,
       is_active: editForm.is_active,
-    }
-
-    const password = editForm.password.trim()
-    if (password) {
-      payload.password = password
     }
 
     try {
@@ -190,32 +185,35 @@ export function UsersSection({ token }: { token: string }) {
             className="h-9 rounded-lg border border-border px-3 text-sm"
           />
           <input
+            required
             value={createForm.first_name}
             onChange={(event) => setCreateForm({ ...createForm, first_name: event.target.value })}
             placeholder="First name"
             className="h-9 rounded-lg border border-border px-3 text-sm"
           />
           <input
+            required
             value={createForm.last_name}
             onChange={(event) => setCreateForm({ ...createForm, last_name: event.target.value })}
             placeholder="Last name"
             className="h-9 rounded-lg border border-border px-3 text-sm"
           />
           <input
+            required
             type="email"
             value={createForm.email}
             onChange={(event) => setCreateForm({ ...createForm, email: event.target.value })}
             placeholder="Email"
             className="h-9 rounded-lg border border-border px-3 text-sm"
           />
-          <input
-            required
-            type="password"
-            value={createForm.password}
-            onChange={(event) => setCreateForm({ ...createForm, password: event.target.value })}
-            placeholder="Password"
-            className="h-9 rounded-lg border border-border px-3 text-sm"
-          />
+          {generatedPasswordPreview ? (
+            <p className="col-span-full text-xs text-muted-foreground">
+              Generated password: {generatedPasswordPreview}
+            </p>
+          ) : null}
+          <p className="col-span-full text-xs text-muted-foreground">
+            Password is auto-generated in this format: firstname.lastname
+          </p>
           <label className="col-span-full flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -256,13 +254,6 @@ export function UsersSection({ token }: { token: string }) {
             value={editForm.email}
             onChange={(event) => setEditForm({ ...editForm, email: event.target.value })}
             placeholder="Email"
-            className="h-9"
-          />
-          <Input
-            type="password"
-            value={editForm.password}
-            onChange={(event) => setEditForm({ ...editForm, password: event.target.value })}
-            placeholder="New password (optional)"
             className="h-9"
           />
           <label className="col-span-full flex items-center gap-2 text-sm">

@@ -81,7 +81,6 @@ class UserCreationEmailTests(APITestCase):
 				'first_name': 'New',
 				'last_name': 'Tutor',
 				'email': 'newtutor@example.com',
-				'password': 'StrongPass123!',
 				'is_active': True,
 			}
 		)
@@ -93,7 +92,9 @@ class UserCreationEmailTests(APITestCase):
 		gmail_sender_cls.return_value.send_new_user_credentials_email.assert_called_once_with(
 			to_email='newtutor@example.com',
 			username='newtutor',
-			password='StrongPass123!',
+			first_name='New',
+			last_name='Tutor',
+			password='new.tutor',
 		)
 		self.assertTrue(User.objects.filter(pk=created_user.pk).exists())
 
@@ -107,7 +108,6 @@ class UserCreationEmailTests(APITestCase):
 				'first_name': 'Rollback',
 				'last_name': 'User',
 				'email': 'rollback@example.com',
-				'password': 'StrongPass123!',
 				'is_active': True,
 			}
 		)
