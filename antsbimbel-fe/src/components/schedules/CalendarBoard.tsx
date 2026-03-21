@@ -141,44 +141,45 @@ export function CalendarBoard({
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-7">
-          {Array.from({ length: 7 }).map((_, index) => {
-            const day = new Date(visibleRange.start)
-            day.setDate(day.getDate() + index)
-            const dayItems = visibleItems.filter((item) => sameDate(item.date, day))
+        <div className="overflow-x-auto pb-1">
+          <div className="grid min-w-180 grid-cols-7 gap-2">
+            {Array.from({ length: 7 }).map((_, index) => {
+              const day = new Date(visibleRange.start)
+              day.setDate(day.getDate() + index)
+              const dayItems = visibleItems.filter((item) => sameDate(item.date, day))
 
-            return (
-              <div key={day.toISOString()} className="rounded-lg border border-border bg-card p-2">
-                <p className="mb-2 text-xs font-semibold">
-                  {day.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}
-                </p>
-                <div className="space-y-1">
-                  {dayItems.length === 0 ? (
-                    <p className="text-[11px] text-muted-foreground">No events</p>
-                  ) : null}
-                  {dayItems.map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => onItemClick?.(item)}
-                      className={cn(
-                        "w-full rounded-md border px-1.5 py-1 text-left text-[11px] leading-tight border-primary/20 bg-primary/10",
-                        onItemClick ? "cursor-pointer hover:bg-primary/20" : "cursor-default"
-                      )}
-                    >
-                      <p className="font-medium">{item.studentName}</p>
-                      <p className="text-muted-foreground">{item.tutorName}</p>
-                      <span
-                        className={cn("mt-1 inline-block size-2.5 rounded-full", item.statusDotClassName)}
-                        title={item.statusLabel}
-                        aria-label={item.statusLabel}
-                      />
-                    </button>
-                  ))}
+              return (
+                <div key={day.toISOString()} className="min-h-24 rounded-lg border border-border bg-card p-2">
+                  <p className="mb-1 text-xs font-semibold">
+                    {day.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}
+                  </p>
+                  <div className="space-y-1">
+                    {dayItems.length === 0 ? (
+                      <p className="text-[11px] text-muted-foreground">No events</p>
+                    ) : null}
+                    {dayItems.slice(0, 3).map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => onItemClick?.(item)}
+                        className={cn(
+                          "w-full rounded-md border border-muted/70 bg-muted/60 px-1.5 py-1 text-left text-[11px] leading-tight",
+                          onItemClick ? "cursor-pointer" : "cursor-default",
+                          item.statusDotClassName
+                        )}
+                      >
+                        <p className="font-medium">{item.studentName}</p>
+                        <p>{item.tutorName}</p>
+                      </button>
+                    ))}
+                    {dayItems.length > 3 ? (
+                      <p className="text-[11px] text-muted-foreground">+{dayItems.length - 3} more</p>
+                    ) : null}
+                  </div>
                 </div>
-              </div>
-            )
-          })}
+              )
+            })}
+          </div>
         </div>
       )}
     </section>

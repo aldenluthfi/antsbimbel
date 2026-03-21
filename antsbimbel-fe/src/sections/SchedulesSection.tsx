@@ -367,23 +367,48 @@ export function SchedulesSection({
     }
   }
 
+  const isCameraPermissionDeniedError = (error: unknown) => {
+    if (!(error instanceof DOMException)) {
+      return false
+    }
+
+    return error.name === "NotAllowedError" || error.name === "SecurityError"
+  }
+
+  const isCameraConstraintError = (error: unknown) => {
+    if (!(error instanceof DOMException)) {
+      return false
+    }
+
+    return error.name === "OverconstrainedError" || error.name === "NotFoundError"
+  }
+
   const requestCurrentLocation = async () => {
     const isBrowser = typeof window !== "undefined"
     if (!isBrowser || !("geolocation" in navigator)) {
       setLocationStatus("denied")
-      return
+      return false
     }
 
-    await new Promise<void>((resolve) => {
+    setLocationStatus("idle")
+
+    return await new Promise<boolean>((resolve) => {
       navigator.geolocation.getCurrentPosition(
         (position) => {
           setLocationStatus("granted")
           setCheckInLocation(`${position.coords.latitude}, ${position.coords.longitude}`)
-          resolve()
+          resolve(true)
         },
-        () => {
-          setLocationStatus("denied")
-          resolve()
+        (locationError) => {
+          setLocationStatus(
+            locationError.code === locationError.PERMISSION_DENIED ? "denied" : "idle"
+          )
+          resolve(false)
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 0,
         }
       )
     })
@@ -395,13 +420,26 @@ export function SchedulesSection({
       return false
     }
 
+    setCameraStatus("idle")
+
     try {
       stopCamera()
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: "environment" },
-        },
-      })
+      let stream: MediaStream
+
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: "environment" },
+          },
+        })
+      } catch (cameraError) {
+        if (!isCameraConstraintError(cameraError)) {
+          throw cameraError
+        }
+
+        stream = await navigator.mediaDevices.getUserMedia({ video: true })
+      }
+
       cameraStreamRef.current = stream
       setCameraStatus("granted")
 
@@ -411,9 +449,23 @@ export function SchedulesSection({
       }
 
       return true
-    } catch {
-      setCameraStatus("denied")
+    } catch (cameraError) {
+      setCameraStatus(isCameraPermissionDeniedError(cameraError) ? "denied" : "idle")
       return false
+    }
+  }
+
+  const restartCamera = async () => {
+    const hasCamera = await startCamera()
+    if (!hasCamera) {
+      setError("Camera permission is required to continue.")
+    }
+  }
+
+  const refreshCurrentLocation = async () => {
+    const hasLocation = await requestCurrentLocation()
+    if (!hasLocation) {
+      setError("Location permission is required for check-in.")
     }
   }
 
@@ -422,6 +474,8 @@ export function SchedulesSection({
     setActiveCaptureSchedule(schedule)
     setCaptureMode(mode)
     setCapturedPhoto(null)
+    setCameraStatus("idle")
+    setLocationStatus("idle")
     if (capturedPhotoUrl) {
       URL.revokeObjectURL(capturedPhotoUrl)
       setCapturedPhotoUrl(null)
@@ -962,7 +1016,7 @@ export function SchedulesSection({
               <video ref={videoRef} autoPlay muted playsInline className="w-full rounded-lg border border-border bg-black/80" />
               <canvas ref={canvasRef} className="hidden" />
               <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-                <Button type="button" variant="outline" onClick={() => void startCamera()}>
+                <Button type="button" variant="outline" onClick={() => void restartCamera()}>
                   Restart camera
                 </Button>
                 <Button type="button" onClick={captureFromCamera}>
@@ -994,7 +1048,7 @@ export function SchedulesSection({
                       placeholder="Latitude, Longitude"
                       className="h-9"
                     />
-                    <Button type="button" variant="outline" onClick={() => void requestCurrentLocation()}>
+                    <Button type="button" variant="outline" onClick={() => void refreshCurrentLocation()}>
                       <MapPin className="size-4" />
                     </Button>
                   </div>
