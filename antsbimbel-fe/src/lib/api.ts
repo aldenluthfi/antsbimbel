@@ -21,7 +21,7 @@ export type Schedule = {
   description: string
   start_datetime: string
   end_datetime: string
-  status: "upcoming" | "done" | "missed" | "cancelled" | "rescheduled" | "pending" | "rejected"
+  status: "upcoming" | "done" | "missed" | "cancelled" | "rescheduled" | "extended" | "pending" | "rejected"
   check_in_id: number | null
   check_out_id: number | null
   check_in_detail: {
@@ -37,6 +37,7 @@ export type Schedule = {
     photo: string | null
   } | null
   can_check_in: boolean
+  can_check_out: boolean
 }
 
 export type Attendance = {
@@ -61,6 +62,16 @@ export type PaginatedResponse<T> = {
 export type Session = {
   token: string
   user: ApiUser
+}
+
+export type AdminResetPasswordPayload = {
+  user_id: number
+}
+
+export type TutorResetPasswordPayload = {
+  old_password: string
+  new_password: string
+  confirm_new_password: string
 }
 
 export type DateFilters = {
@@ -133,9 +144,10 @@ export type ScheduleRequest = {
   id: number
   status: RequestStatus
   old_schedule: number | null
-  new_schedule: number
+  new_schedule: number | null
+  extension: number | null
   old_schedule_detail: Schedule | null
-  new_schedule_detail: Schedule
+  new_schedule_detail: Schedule | null
   created_at: string
   updated_at: string
 }
@@ -195,6 +207,23 @@ export type MonthlyScheduleReportResponse = {
   sheet_url: string
   sheet_id: string
   month: string
+}
+
+export type EmailBlastMode = "daily" | "weekly"
+
+export type EmailBlastPermissionState = {
+  can_daily: boolean
+  can_weekly: boolean
+}
+
+export type EmailBlastResponse = {
+  detail: string
+  mode: EmailBlastMode
+  period_start: string
+  period_end: string
+  sent_count: number
+  failed_count: number
+  permission: EmailBlastPermissionState
 }
 
 export type SaveStudentPayload = {
@@ -419,6 +448,16 @@ export const authApi = {
   logout(token: string) {
     return apiRequest<{ detail: string }>("/auth/logout/", { method: "POST" }, token)
   },
+  resetPassword(payload: AdminResetPasswordPayload | TutorResetPasswordPayload, token: string) {
+    return apiRequest<{ detail: string }>(
+      "/auth/reset-password/",
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+      token
+    )
+  },
 }
 
 export const usersApi = {
@@ -523,6 +562,19 @@ export const schedulesApi = {
       {
         method: "POST",
         body: JSON.stringify({ month }),
+      },
+      token
+    )
+  },
+  getEmailBlastPermission(token: string) {
+    return apiRequest<EmailBlastPermissionState>("/schedules/email-blast-permission/", {}, token)
+  },
+  sendEmailBlast(mode: EmailBlastMode, token: string) {
+    return apiRequest<EmailBlastResponse>(
+      "/schedules/email-blast/",
+      {
+        method: "POST",
+        body: JSON.stringify({ mode }),
       },
       token
     )

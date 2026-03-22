@@ -15,6 +15,7 @@ class RequestSerializer(serializers.ModelSerializer):
             'status',
             'old_schedule',
             'new_schedule',
+            'extension',
             'old_schedule_detail',
             'new_schedule_detail',
             'created_at',

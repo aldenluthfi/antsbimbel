@@ -116,6 +116,7 @@ class RequestPermission(BasePermission):
             return True
 
         if is_tutor(user):
-            return request.method in SAFE_METHODS and obj.new_schedule.tutor_id == user.id
+            tutor_schedule = obj.new_schedule or obj.old_schedule
+            return request.method in SAFE_METHODS and bool(tutor_schedule and tutor_schedule.tutor_id == user.id)
 
         return False

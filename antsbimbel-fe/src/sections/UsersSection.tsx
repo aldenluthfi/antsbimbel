@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Pencil, Trash2 } from "lucide-react"
+import { KeyRound, Pencil, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Pagination } from "@/components/schedules"
@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
-import { type ApiUser, parseApiError, usersApi } from "@/lib/api"
+import { authApi, type ApiUser, parseApiError, usersApi } from "@/lib/api"
 import { notifySubmitError } from "@/lib/helpers/notifications"
 
 export function UsersSection({ token }: { token: string }) {
@@ -30,6 +30,10 @@ export function UsersSection({ token }: { token: string }) {
   const [creating, setCreating] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [editingUserId, setEditingUserId] = useState<number | null>(null)
+  const [deleteTargetUser, setDeleteTargetUser] = useState<ApiUser | null>(null)
+  const [isDeletingUser, setIsDeletingUser] = useState(false)
+  const [resetTargetUser, setResetTargetUser] = useState<ApiUser | null>(null)
+  const [isResettingPassword, setIsResettingPassword] = useState(false)
   const [createForm, setCreateForm] = useState({
     username: "",
     first_name: "",
@@ -140,23 +144,45 @@ export function UsersSection({ token }: { token: string }) {
     }
   }
 
-  const deleteUser = async (user: ApiUser) => {
-    const shouldDelete = window.confirm(`Delete tutor ${user.username}?`)
-    if (!shouldDelete) {
+  const submitDeleteUser = async () => {
+    if (!deleteTargetUser) {
       return
     }
 
+    setIsDeletingUser(true)
     setError("")
     try {
-      await usersApi.remove(user.id, token)
+      await usersApi.remove(deleteTargetUser.id, token)
       toast.success("Tutor deleted")
-      if (editingUserId === user.id) {
+      if (editingUserId === deleteTargetUser.id) {
         cancelEditUser()
       }
+      setDeleteTargetUser(null)
       await fetchUsers()
     } catch (deleteError) {
       setError(parseApiError(deleteError))
       notifySubmitError(deleteError, "Delete tutor failed")
+    } finally {
+      setIsDeletingUser(false)
+    }
+  }
+
+  const submitResetUserPassword = async () => {
+    if (!resetTargetUser) {
+      return
+    }
+
+    setIsResettingPassword(true)
+    setError("")
+    try {
+      const response = await authApi.resetPassword({ user_id: resetTargetUser.id }, token)
+      toast.success(response.detail)
+      setResetTargetUser(null)
+    } catch (resetError) {
+      setError(parseApiError(resetError))
+      notifySubmitError(resetError, "Reset tutor password failed")
+    } finally {
+      setIsResettingPassword(false)
     }
   }
 
@@ -179,22 +205,22 @@ export function UsersSection({ token }: { token: string }) {
         className="h-9 w-full"
       />
 
-      {loading ? (
-        <div className="space-y-3">
-          <Skeleton className="h-8 w-32" />
-          <Skeleton className="h-20 w-full rounded-xl" />
-          <Skeleton className="h-20 w-full rounded-xl" />
-        </div>
-      ) : null}
-
       <div className="flex flex-col space-y-3 md:hidden">
         {loading && users.length === 0
           ? Array.from({ length: 2 }).map((_, index) => (
             <article key={`user-mobile-skeleton-${index}`} className="rounded-xl border border-border bg-background p-3 text-sm">
-              <Skeleton className="h-5 w-28" />
-              <Skeleton className="mt-2 h-4 w-full" />
-              <Skeleton className="mt-2 h-4 w-2/3" />
-              <Skeleton className="mt-3 h-9 w-full" />
+              <div className="flex items-start justify-between gap-3">
+                <Skeleton className="h-5 w-28" />
+                <Skeleton className="h-6 w-16 rounded-full" />
+              </div>
+              <Skeleton className="mt-2 h-4 w-3/4" />
+              <Skeleton className="mt-1 h-4 w-full" />
+              <Skeleton className="mt-1 h-4 w-24" />
+              <div className="mt-3 flex gap-2">
+                <Skeleton className="h-9 flex-1" />
+                <Skeleton className="h-9 flex-1" />
+                <Skeleton className="h-9 flex-1" />
+              </div>
             </article>
           ))
           : null}
@@ -216,7 +242,11 @@ export function UsersSection({ token }: { token: string }) {
                 <Pencil className="size-4" />
                 Edit
               </Button>
-              <Button className="flex-1" size="sm" variant="destructive" onClick={() => deleteUser(user)}>
+              <Button className="flex-1" size="sm" variant="secondary" onClick={() => setResetTargetUser(user)}>
+                <KeyRound className="size-4" />
+                Reset password
+              </Button>
+              <Button className="flex-1" size="sm" variant="destructive" onClick={() => setDeleteTargetUser(user)}>
                 <Trash2 className="size-4" />
                 Delete
               </Button>
@@ -237,15 +267,28 @@ export function UsersSection({ token }: { token: string }) {
               <th className="w-56 px-3 py-2">Name</th>
               <th className="w-40 px-3 py-2">Username</th>
               <th className="px-3 py-2">Email</th>
-              <th className="w-48 px-3 py-2">Actions</th>
+              <th className="w-56 px-3 py-2">Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading && users.length === 0
               ? Array.from({ length: 5 }).map((_, index) => (
                 <tr key={`user-table-skeleton-${index}`} className="border-t border-border">
-                  <td className="px-3 py-2" colSpan={4}>
-                    <Skeleton className="h-8 w-full" />
+                  <td className="px-3 py-2">
+                    <Skeleton className="h-4 w-5/6" />
+                  </td>
+                  <td className="px-3 py-2">
+                    <Skeleton className="h-4 w-20" />
+                  </td>
+                  <td className="px-3 py-2">
+                    <Skeleton className="h-4 w-11/12" />
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="flex gap-2">
+                      <Skeleton className="h-8 w-20" />
+                      <Skeleton className="h-8 w-28" />
+                      <Skeleton className="h-8 w-20" />
+                    </div>
                   </td>
                 </tr>
               ))
@@ -263,7 +306,11 @@ export function UsersSection({ token }: { token: string }) {
                       <Pencil className="size-4" />
                       Edit
                     </Button>
-                    <Button size="sm" variant="destructive" onClick={() => deleteUser(user)}>
+                    <Button size="sm" variant="outline" onClick={() => setResetTargetUser(user)}>
+                      <KeyRound className="size-4" />
+                      Reset password
+                    </Button>
+                    <Button size="sm" variant="destructive" onClick={() => setDeleteTargetUser(user)}>
                       <Trash2 className="size-4" />
                       Delete
                     </Button>
@@ -441,6 +488,65 @@ export function UsersSection({ token }: { token: string }) {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(deleteTargetUser)}
+        onOpenChange={(open) => {
+          if (!open && !isDeletingUser) {
+            setDeleteTargetUser(null)
+          }
+        }}
+      >
+        <DialogContent className="w-[95vw] max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete tutor</DialogTitle>
+            <DialogDescription>
+              {deleteTargetUser ? `Delete tutor ${deleteTargetUser.username}? This action cannot be undone.` : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button disabled={isDeletingUser} type="button" variant="outline" onClick={() => setDeleteTargetUser(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={isDeletingUser || !deleteTargetUser}
+              type="button"
+              variant="destructive"
+              onClick={submitDeleteUser}
+            >
+              {isDeletingUser ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(resetTargetUser)}
+        onOpenChange={(open) => {
+          if (!open && !isResettingPassword) {
+            setResetTargetUser(null)
+          }
+        }}
+      >
+        <DialogContent className="w-[95vw] max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reset password</DialogTitle>
+            <DialogDescription>
+              {resetTargetUser
+                ? `Reset password for ${resetTargetUser.username}? New password will be set to ${resetTargetUser.first_name.toLowerCase()}.${resetTargetUser.last_name.toLowerCase()} and sent to the tutor email.`
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button disabled={isResettingPassword} type="button" variant="outline" onClick={() => setResetTargetUser(null)}>
+              Cancel
+            </Button>
+            <Button disabled={isResettingPassword || !resetTargetUser} type="button" onClick={submitResetUserPassword}>
+              {isResettingPassword ? "Resetting..." : "Reset password"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </section>

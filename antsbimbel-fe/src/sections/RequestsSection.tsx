@@ -47,8 +47,27 @@ function getRequestStatusPresentation(status: RequestStatus): { label: string; c
   }
 }
 
+function getEffectiveRequestSchedule(requestItem: ScheduleRequest) {
+  return requestItem.new_schedule_detail ?? requestItem.old_schedule_detail
+}
+
+function getRequestTargetLabel(requestItem: ScheduleRequest): string {
+  const newSchedule = requestItem.new_schedule_detail
+  if (newSchedule) {
+    return formatDateTimeRange(newSchedule.start_datetime, newSchedule.end_datetime)
+  }
+
+  if (requestItem.extension) {
+    return `Extension request (+${requestItem.extension}h)`
+  }
+
+  return "-"
+}
+
 export function RequestsSection({ token }: { token: string }) {
   const [filters, setFilters] = useState<DateFilters>(DEFAULT_FILTERS)
+  const [tutorSearchQuery, setTutorSearchQuery] = useState("")
+  const [studentSearchQuery, setStudentSearchQuery] = useState("")
   const [statusFilter, setStatusFilter] = useState<RequestStatusFilter>("pending")
   const [sortBy, setSortBy] = useState<RequestSortBy>("created_at")
   const [sortOrder, setSortOrder] = useState<SortOrder>("asc")
@@ -111,12 +130,39 @@ export function RequestsSection({ token }: { token: string }) {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [tutorResponse, studentResponse] = await Promise.all([
-          usersApi.list(token, 1, 100, ""),
-          studentsApi.list(token, 1, 100, ""),
+        const [nextTutors, nextStudents] = await Promise.all([
+          (async () => {
+            const items: ApiUser[] = []
+            let nextPage = 1
+            let hasNext = true
+
+            while (hasNext && nextPage <= 50) {
+              const response = await usersApi.list(token, nextPage, 50, tutorSearchQuery)
+              items.push(...response.results)
+              hasNext = Boolean(response.next)
+              nextPage += 1
+            }
+
+            return items
+          })(),
+          (async () => {
+            const items: Student[] = []
+            let nextPage = 1
+            let hasNext = true
+
+            while (hasNext && nextPage <= 50) {
+              const response = await studentsApi.list(token, nextPage, 50, studentSearchQuery)
+              items.push(...response.results)
+              hasNext = Boolean(response.next)
+              nextPage += 1
+            }
+
+            return items
+          })(),
         ])
-        setTutors(tutorResponse.results)
-        setStudents(studentResponse.results)
+
+        setTutors(nextTutors)
+        setStudents(nextStudents)
       } catch {
         setTutors([])
         setStudents([])
@@ -124,7 +170,7 @@ export function RequestsSection({ token }: { token: string }) {
     }
 
     void fetchData()
-  }, [token])
+  }, [token, tutorSearchQuery, studentSearchQuery])
 
   useEffect(() => {
     if (error) {
@@ -154,20 +200,25 @@ export function RequestsSection({ token }: { token: string }) {
 
   const calendarItems = useMemo<CalendarItem[]>(
     () =>
-      calendarRequests.map((requestItem) => {
-        const schedule = requestItem.new_schedule_detail
+      calendarRequests.flatMap((requestItem) => {
+        const schedule = getEffectiveRequestSchedule(requestItem)
+        if (!schedule) {
+          return []
+        }
         const statusPresentation = getRequestStatusPresentation(requestItem.status)
 
-        return {
-          id: `request-${requestItem.id}`,
-          studentName: displayStudentName(schedule),
-          tutorName: displayTutorName(schedule),
-          scheduleHourLabel: formatTimeRange(schedule.start_datetime, schedule.end_datetime),
-          statusLabel: statusPresentation.label,
-          statusDotClassName: statusPresentation.className,
-          date: toWibCalendarDate(schedule.start_datetime),
-          schedule,
-        }
+        return [
+          {
+            id: `request-${requestItem.id}`,
+            studentName: displayStudentName(schedule),
+            tutorName: displayTutorName(schedule),
+            scheduleHourLabel: formatTimeRange(schedule.start_datetime, schedule.end_datetime),
+            statusLabel: statusPresentation.label,
+            statusDotClassName: statusPresentation.className,
+            date: toWibCalendarDate(schedule.start_datetime),
+            schedule,
+          },
+        ]
       }),
     [calendarRequests]
   )
@@ -222,7 +273,8 @@ export function RequestsSection({ token }: { token: string }) {
           showTutor
           tutors={tutors}
           students={students}
-          canPickStudent
+          onTutorSearchQueryChange={setTutorSearchQuery}
+          onStudentSearchQueryChange={setStudentSearchQuery}
           status={statusFilter}
           statusOptions={[
             { value: "pending", label: "Pending" },
@@ -251,27 +303,30 @@ export function RequestsSection({ token }: { token: string }) {
         />
       </section>
 
-      {loading ? (
-        <div className="space-y-3">
-          <Skeleton className="h-8 w-44" />
-          <Skeleton className="h-20 w-full rounded-xl" />
-          <Skeleton className="h-20 w-full rounded-xl" />
-        </div>
-      ) : null}
-
       <div className="flex flex-col space-y-3 md:hidden">
         {loading && requests.length === 0
           ? Array.from({ length: 2 }).map((_, index) => (
             <article key={`request-mobile-skeleton-${index}`} className="rounded-xl border border-border bg-background p-3 text-sm">
-              <Skeleton className="h-5 w-24" />
-              <Skeleton className="mt-2 h-4 w-full" />
-              <Skeleton className="mt-2 h-4 w-5/6" />
-              <Skeleton className="mt-3 h-9 w-full" />
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-2">
+                  <Skeleton className="h-5 w-20" />
+                  <Skeleton className="h-4 w-36" />
+                </div>
+                <Skeleton className="h-6 w-20 rounded-full" />
+              </div>
+              <Skeleton className="mt-2 h-4 w-3/4" />
+              <Skeleton className="mt-1 h-4 w-2/3" />
+              <Skeleton className="mt-1 h-4 w-full" />
+              <Skeleton className="mt-1 h-4 w-full" />
+              <div className="mt-3 flex gap-2">
+                <Skeleton className="h-9 flex-1" />
+                <Skeleton className="h-9 flex-1" />
+              </div>
             </article>
           ))
           : null}
         {requests.map((requestItem) => {
-          const schedule = requestItem.new_schedule_detail
+          const schedule = getEffectiveRequestSchedule(requestItem)
           const oldSchedule = requestItem.old_schedule_detail
           const statusPresentation = getRequestStatusPresentation(requestItem.status)
 
@@ -287,9 +342,9 @@ export function RequestsSection({ token }: { token: string }) {
                 </Badge>
               </div>
 
-              <p className="mt-2 text-muted-foreground">Tutor: {displayTutorName(schedule)}</p>
-              <p className="text-muted-foreground">Student: {displayStudentName(schedule)}</p>
-              <p className="text-muted-foreground">New schedule: {formatDateTimeRange(schedule.start_datetime, schedule.end_datetime)}</p>
+              <p className="mt-2 text-muted-foreground">Tutor: {schedule ? displayTutorName(schedule) : "-"}</p>
+              <p className="text-muted-foreground">Student: {schedule ? displayStudentName(schedule) : "-"}</p>
+              <p className="text-muted-foreground">New schedule: {getRequestTargetLabel(requestItem)}</p>
               <p className="text-muted-foreground">
                 Old schedule: {oldSchedule ? formatDateTimeRange(oldSchedule.start_datetime, oldSchedule.end_datetime) : "New schedule request"}
               </p>
@@ -316,23 +371,41 @@ export function RequestsSection({ token }: { token: string }) {
             {loading && requests.length === 0
               ? Array.from({ length: 5 }).map((_, index) => (
                 <tr key={`request-table-skeleton-${index}`} className="border-t border-border">
-                  <td className="px-3 py-2" colSpan={6}>
-                    <Skeleton className="h-8 w-full" />
+                  <td className="px-3 py-2">
+                    <Skeleton className="h-4 w-11/12" />
+                  </td>
+                  <td className="px-3 py-2">
+                    <Skeleton className="h-4 w-11/12" />
+                  </td>
+                  <td className="px-3 py-2">
+                    <Skeleton className="h-4 w-full" />
+                  </td>
+                  <td className="px-3 py-2">
+                    <Skeleton className="h-4 w-full" />
+                  </td>
+                  <td className="px-3 py-2">
+                    <Skeleton className="h-6 w-20 rounded-full" />
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="flex gap-2">
+                      <Skeleton className="h-8 w-20" />
+                      <Skeleton className="h-8 w-20" />
+                    </div>
                   </td>
                 </tr>
               ))
               : null}
             {requests.map((requestItem) => {
-              const schedule = requestItem.new_schedule_detail
+              const schedule = getEffectiveRequestSchedule(requestItem)
               const oldSchedule = requestItem.old_schedule_detail
               const statusPresentation = getRequestStatusPresentation(requestItem.status)
 
               return (
                 <tr key={requestItem.id} className="border-t border-border">
-                  <td className="px-3 py-2">{displayTutorName(schedule)}</td>
-                  <td className="px-3 py-2">{displayStudentName(schedule)}</td>
+                  <td className="px-3 py-2">{schedule ? displayTutorName(schedule) : "-"}</td>
+                  <td className="px-3 py-2">{schedule ? displayStudentName(schedule) : "-"}</td>
                   <td className="px-3 py-2">{oldSchedule ? formatDateTimeRange(oldSchedule.start_datetime, oldSchedule.end_datetime) : "-"}</td>
-                  <td className="px-3 py-2">{formatDateTimeRange(schedule.start_datetime, schedule.end_datetime)}</td>
+                  <td className="px-3 py-2">{getRequestTargetLabel(requestItem)}</td>
                   <td className="px-3 py-2">
                     <Badge variant="outline" className={statusPresentation.className}>
                       {statusPresentation.label}

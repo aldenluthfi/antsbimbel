@@ -146,6 +146,8 @@ export function SchedulesSection({
   const [rescheduleStartDatetime, setRescheduleStartDatetime] = useState("")
   const [rescheduleEndDatetime, setRescheduleEndDatetime] = useState("")
   const [isSubmittingReschedule, setIsSubmittingReschedule] = useState(false)
+  const [deleteTargetSchedule, setDeleteTargetSchedule] = useState<Schedule | null>(null)
+  const [isDeletingSchedule, setIsDeletingSchedule] = useState(false)
   const [isTutorRequestOpen, setIsTutorRequestOpen] = useState(false)
   const [isSubmittingTutorRequest, setIsSubmittingTutorRequest] = useState(false)
   const [tutorRequestForm, setTutorRequestForm] = useState({
@@ -401,6 +403,7 @@ export function SchedulesSection({
     setIsSubmittingReschedule(true)
 
     try {
+      const isExtensionRequest = rescheduleStartDatetime === rescheduleTarget.start_datetime
       await schedulesApi.update(
         rescheduleTarget.id,
         {
@@ -409,7 +412,7 @@ export function SchedulesSection({
         },
         token
       )
-      toast.success("Reschedule request submitted")
+      toast.success(isExtensionRequest ? "Extension request submitted" : "Reschedule request submitted")
       closeTutorReschedule()
       await fetchSchedules()
     } catch (submitError) {
@@ -456,18 +459,22 @@ export function SchedulesSection({
     }
   }
 
-  const deleteSchedule = async (id: number) => {
-    const shouldDelete = window.confirm("Delete this schedule?")
-    if (!shouldDelete) {
+  const submitDeleteSchedule = async () => {
+    if (!deleteTargetSchedule) {
       return
     }
 
+    setIsDeletingSchedule(true)
+    setError("")
     try {
-      await schedulesApi.remove(id, token)
+      await schedulesApi.remove(deleteTargetSchedule.id, token)
       toast.success("Schedule deleted")
+      setDeleteTargetSchedule(null)
       await fetchSchedules()
     } catch (deleteError) {
       setError(parseApiError(deleteError))
+    } finally {
+      setIsDeletingSchedule(false)
     }
   }
 
@@ -801,7 +808,6 @@ export function SchedulesSection({
           showTutor={!tutorId}
           tutors={tutors}
           students={students}
-          canPickStudent
           onTutorSearchQueryChange={setTutorSearchQuery}
           onStudentSearchQueryChange={setStudentSearchQuery}
           status={statusFilter}
@@ -882,27 +888,37 @@ export function SchedulesSection({
         ) : null}
       </section>
 
-      {loading ? (
-        <div className="space-y-3">
-          <Skeleton className="h-8 w-48" />
-          <Skeleton className="h-24 w-full rounded-xl" />
-          <Skeleton className="h-24 w-full rounded-xl" />
-        </div>
-      ) : null}
-
       <div className="flex flex-col space-y-3 md:hidden">
         {loading && schedules.length === 0
           ? Array.from({ length: 2 }).map((_, index) => (
             <article key={`schedule-mobile-skeleton-${index}`} className="rounded-xl border border-border bg-background p-3 text-sm">
-              <Skeleton className="h-5 w-28" />
-              <Skeleton className="mt-2 h-4 w-full" />
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-2">
+                  <Skeleton className="h-5 w-24" />
+                  <Skeleton className="h-4 w-44" />
+                </div>
+                <Skeleton className="h-6 w-20 rounded-full" />
+              </div>
               <Skeleton className="mt-2 h-4 w-3/4" />
-              <Skeleton className="mt-4 h-9 w-full" />
+              <Skeleton className="mt-1 h-4 w-2/3" />
+              <Skeleton className="mt-1 h-4 w-4/5" />
+              <Skeleton className="mt-1 h-4 w-full" />
+
+              <div className="mt-3 grid gap-2">
+                <Skeleton className="h-9 w-full" />
+                <Skeleton className="h-9 w-full" />
+                <Skeleton className="h-9 w-full" />
+                <div className="flex gap-2">
+                  <Skeleton className="h-9 flex-1" />
+                  <Skeleton className="h-9 flex-1" />
+                </div>
+              </div>
             </article>
           ))
           : schedules.map((schedule) => {
           const statusPresentation = getScheduleStatusPresentation(schedule)
-          const canSubmitAttendance = schedule.can_check_in
+          const canSubmitCheckIn = schedule.can_check_in
+          const canSubmitCheckOut = schedule.can_check_out
           return (
             <article key={schedule.id} className="rounded-xl border border-border bg-background p-3 text-sm">
               <div className="flex items-start justify-between gap-3">
@@ -946,7 +962,7 @@ export function SchedulesSection({
                     size="sm"
                     onClick={() => void openCaptureDialog("check-in", schedule)}
                     className="w-full disabled:border-border disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100"
-                    disabled={!canSubmitAttendance}
+                    disabled={!canSubmitCheckIn}
                   >
                     Check in
                   </Button>
@@ -968,7 +984,7 @@ export function SchedulesSection({
                     size="sm"
                     onClick={() => void openCaptureDialog("check-out", schedule)}
                     className="w-full disabled:border-border disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100"
-                    disabled={!canSubmitAttendance}
+                    disabled={!canSubmitCheckOut}
                   >
                     Check out
                   </Button>
@@ -985,7 +1001,7 @@ export function SchedulesSection({
                       size="sm"
                       variant="destructive"
                       className="flex-1"
-                      onClick={() => deleteSchedule(schedule.id)}
+                      onClick={() => setDeleteTargetSchedule(schedule)}
                     >
                       Delete
                     </Button>
@@ -1024,8 +1040,43 @@ export function SchedulesSection({
             {loading && schedules.length === 0
               ? Array.from({ length: 5 }).map((_, index) => (
                 <tr key={`schedule-table-skeleton-${index}`} className="border-t border-border">
-                  <td className="px-3 py-2" colSpan={canManage ? 6 : 8}>
-                    <Skeleton className="h-8 w-full" />
+                  {!canManage ? (
+                    <td className="px-3 py-2">
+                      <Skeleton className="h-4 w-11/12" />
+                    </td>
+                  ) : null}
+                  {canManage ? (
+                    <td className="px-3 py-2">
+                      <Skeleton className="h-4 w-11/12" />
+                    </td>
+                  ) : null}
+                  {canManage ? (
+                    <td className="px-3 py-2">
+                      <Skeleton className="h-4 w-11/12" />
+                    </td>
+                  ) : null}
+                  <td className="px-3 py-2">
+                    <Skeleton className="h-4 w-full" />
+                  </td>
+                  <td className="px-3 py-2">
+                    <Skeleton className="h-6 w-20 rounded-full" />
+                  </td>
+                  {!canManage ? (
+                    <td className="px-3 py-2">
+                      <Skeleton className="h-8 w-24" />
+                    </td>
+                  ) : null}
+                  {!canManage ? (
+                    <td className="px-3 py-2">
+                      <Skeleton className="h-8 w-24" />
+                    </td>
+                  ) : null}
+                  <td className="px-3 py-2">
+                    <div className="flex gap-2">
+                      <Skeleton className="h-8 w-20" />
+                      <Skeleton className="h-8 w-20" />
+                      {canManage ? <Skeleton className="h-8 w-20" /> : null}
+                    </div>
                   </td>
                 </tr>
               ))
@@ -1081,7 +1132,7 @@ export function SchedulesSection({
                         size="sm"
                         onClick={() => void openCaptureDialog("check-out", schedule)}
                         className="disabled:border-border disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100"
-                        disabled={!schedule.can_check_in}
+                        disabled={!schedule.can_check_out}
                       >
                         Check out
                       </Button>
@@ -1099,7 +1150,7 @@ export function SchedulesSection({
                       <Button size="sm" variant="outline" onClick={() => openEdit(schedule)}>
                         Edit
                       </Button>
-                      <Button size="sm" variant="destructive" onClick={() => deleteSchedule(schedule.id)}>
+                      <Button size="sm" variant="destructive" onClick={() => setDeleteTargetSchedule(schedule)}>
                         Delete
                       </Button>
                     </div>
@@ -1373,7 +1424,7 @@ export function SchedulesSection({
             <DialogHeader>
               <DialogTitle>Reschedule</DialogTitle>
               <DialogDescription>
-                Only the schedule date and time can be changed. This creates a pending request for admin approval.
+                Only the schedule date and time can be changed. If the start time stays the same, this becomes an extension request.
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={submitTutorReschedule} className="grid gap-3">
@@ -1637,6 +1688,46 @@ export function SchedulesSection({
             ) : null}
 
             <DialogFooter showCloseButton />
+          </DialogContent>
+        </Dialog>
+      ) : null}
+
+      {canManage ? (
+        <Dialog
+          open={Boolean(deleteTargetSchedule)}
+          onOpenChange={(open) => {
+            if (!open && !isDeletingSchedule) {
+              setDeleteTargetSchedule(null)
+            }
+          }}
+        >
+          <DialogContent className="w-[95vw] max-w-md">
+            <DialogHeader>
+              <DialogTitle>Delete schedule</DialogTitle>
+              <DialogDescription>
+                {deleteTargetSchedule
+                  ? `Delete schedule for ${displayStudentName(deleteTargetSchedule)} at ${formatDateTimeRange(deleteTargetSchedule.start_datetime, deleteTargetSchedule.end_datetime)}? This action cannot be undone.`
+                  : ""}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button
+                disabled={isDeletingSchedule}
+                type="button"
+                variant="outline"
+                onClick={() => setDeleteTargetSchedule(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                disabled={isDeletingSchedule || !deleteTargetSchedule}
+                type="button"
+                variant="destructive"
+                onClick={submitDeleteSchedule}
+              >
+                {isDeletingSchedule ? "Deleting..." : "Delete"}
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       ) : null}

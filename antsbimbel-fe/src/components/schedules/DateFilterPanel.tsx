@@ -17,7 +17,6 @@ export function DateFilterPanel({
   showTutor,
   tutors,
   students,
-  canPickStudent,
   onTutorSearchQueryChange,
   onStudentSearchQueryChange,
   status,
@@ -34,7 +33,6 @@ export function DateFilterPanel({
   showTutor: boolean
   tutors: ApiUser[]
   students?: Student[]
-  canPickStudent?: boolean
   onTutorSearchQueryChange?: (query: string) => void
   onStudentSearchQueryChange?: (query: string) => void
   status: string
@@ -54,6 +52,7 @@ export function DateFilterPanel({
       { value: "missed", label: "Missed" },
       { value: "cancelled", label: "Cancelled" },
       { value: "rescheduled", label: "Rescheduled" },
+      { value: "extended", label: "Extended" },
       { value: "pending", label: "Pending" },
       { value: "rejected", label: "Rejected" },
     ]
@@ -87,28 +86,16 @@ export function DateFilterPanel({
             </label>
           ) : null}
 
-          {canPickStudent ? (
-            <label className="flex flex-col space-y-2 text-sm">
-              <span className="font-medium">Student</span>
-              <StudentCombobox
-                students={students ?? []}
-                value={value.studentId}
-                onChange={(nextStudentId) => onChange({ ...value, studentId: nextStudentId })}
-                onSearchQueryChange={onStudentSearchQueryChange}
-                placeholder="Select student"
-              />
-            </label>
-          ) : (
-            <label className="flex flex-col space-y-2 text-sm">
-              <span className="font-medium">Student</span>
-              <input
-                value={value.studentId}
-                onChange={(event) => onChange({ ...value, studentId: event.target.value })}
-                className="h-9 w-full rounded-lg border border-border bg-background px-3 text-sm"
-                placeholder="e.g. 123"
-              />
-            </label>
-          )}
+          <label className="flex flex-col space-y-2 text-sm">
+            <span className="font-medium">Student</span>
+            <StudentCombobox
+              students={students ?? []}
+              value={value.studentId}
+              onChange={(nextStudentId) => onChange({ ...value, studentId: nextStudentId })}
+              onSearchQueryChange={onStudentSearchQueryChange}
+              placeholder="Select student"
+            />
+          </label>
 
           <label className="min-w-0 flex flex-col space-y-2 text-sm">
             <span className="font-medium">Date range</span>

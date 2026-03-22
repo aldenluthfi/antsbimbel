@@ -9,6 +9,25 @@ from .google_gmail import GoogleGmailSendError, GoogleGmailSender
 User = get_user_model()
 
 
+def normalize_password_part(value):
+    return ''.join(char for char in (value or '').strip().lower() if char.isalnum())
+
+
+def generate_default_user_password(first_name, last_name):
+    normalized_first_name = normalize_password_part(first_name)
+    normalized_last_name = normalize_password_part(last_name)
+
+    errors = {}
+    if not normalized_first_name:
+        errors['first_name'] = 'First name is required to generate account password.'
+    if not normalized_last_name:
+        errors['last_name'] = 'Last name is required to generate account password.'
+    if errors:
+        raise serializers.ValidationError(errors)
+
+    return f'{normalized_first_name}.{normalized_last_name}'
+
+
 class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False)
 
@@ -29,23 +48,11 @@ class UserSerializer(serializers.ModelSerializer):
             validate_password(value, user=self.instance)
         return value
 
-    @staticmethod
-    def _normalize_password_part(value):
-        return ''.join(char for char in (value or '').strip().lower() if char.isalnum())
-
     def _build_generated_password(self, validated_data):
-        first_name = self._normalize_password_part(validated_data.get('first_name'))
-        last_name = self._normalize_password_part(validated_data.get('last_name'))
-
-        errors = {}
-        if not first_name:
-            errors['first_name'] = 'First name is required to generate account password.'
-        if not last_name:
-            errors['last_name'] = 'Last name is required to generate account password.'
-        if errors:
-            raise serializers.ValidationError(errors)
-
-        return f'{first_name}.{last_name}'
+        return generate_default_user_password(
+            validated_data.get('first_name'),
+            validated_data.get('last_name'),
+        )
 
     def _apply_tutor_role(self, instance):
         instance.is_staff = False

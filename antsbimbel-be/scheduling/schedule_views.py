@@ -14,9 +14,11 @@ from rest_framework.response import Response
 
 from .api_parameters import CALENDAR_PAGINATION_QUERY_PARAMETERS, SCHEDULE_LIST_QUERY_PARAMETERS
 from .auth_serializers import MessageSerializer
+from .drive_paths import report_file_name, report_folder_parts
+from .email_blast import get_admin_blast_permission_state, send_admin_schedule_blast
 from .google_drive import GoogleDriveUploadError, GoogleDriveUploader
 from .location_utils import build_location_search_url
-from .models import Request, Schedule, Student
+from .models import EmailBlastRecord, Request, Schedule, Student
 from .pagination import StandardResultsSetPagination
 from .permissions import SchedulePermission, is_admin, is_tutor
 from .schedule_serializers import ScheduleSerializer
@@ -30,6 +32,30 @@ class TutorScheduleRequestPayloadSerializer(serializers.Serializer):
     end_datetime = serializers.DateTimeField(required=True)
 
 
+class EmailBlastPayloadSerializer(serializers.Serializer):
+    mode = serializers.ChoiceField(choices=[EmailBlastRecord.TYPE_DAILY, EmailBlastRecord.TYPE_WEEKLY])
+
+
+class EmailBlastPermissionSerializer(serializers.Serializer):
+    can_daily = serializers.BooleanField()
+    can_weekly = serializers.BooleanField()
+
+
+class TutorScheduleRequestResponseSerializer(serializers.Serializer):
+    request_id = serializers.IntegerField()
+    schedule = ScheduleSerializer()
+
+
+class EmailBlastResponseSerializer(serializers.Serializer):
+    detail = serializers.CharField()
+    mode = serializers.ChoiceField(choices=[EmailBlastRecord.TYPE_DAILY, EmailBlastRecord.TYPE_WEEKLY])
+    period_start = serializers.DateField()
+    period_end = serializers.DateField()
+    sent_count = serializers.IntegerField()
+    failed_count = serializers.IntegerField()
+    permission = EmailBlastPermissionSerializer()
+
+
 class ScheduleViewSet(viewsets.ModelViewSet):
     queryset = Schedule.objects.select_related('tutor', 'check_in', 'check_in__check_out').all().order_by('-start_datetime')
     serializer_class = ScheduleSerializer
@@ -41,10 +67,12 @@ class ScheduleViewSet(viewsets.ModelViewSet):
         Schedule.STATUS_MISSED,
         Schedule.STATUS_CANCELLED,
         Schedule.STATUS_RESCHEDULED,
+        Schedule.STATUS_EXTENDED,
         Schedule.STATUS_PENDING,
         Schedule.STATUS_REJECTED,
     }
     MINIMUM_SCHEDULE_DURATION = timedelta(hours=2)
+    SESSION_DURATION = timedelta(hours=2)
 
     @staticmethod
     def _is_past_start_datetime(start_datetime):
@@ -64,8 +92,12 @@ class ScheduleViewSet(viewsets.ModelViewSet):
         if timezone.localtime(start_datetime).date() != timezone.localtime(end_datetime).date():
             raise ValidationError({'end_datetime': 'Start datetime and end datetime must be on the same date.'})
 
-        if end_datetime - start_datetime < ScheduleViewSet.MINIMUM_SCHEDULE_DURATION:
+        schedule_duration = end_datetime - start_datetime
+        if schedule_duration < ScheduleViewSet.MINIMUM_SCHEDULE_DURATION:
             raise ValidationError({'end_datetime': 'Schedule duration must be at least 2 hours.'})
+
+        if schedule_duration % ScheduleViewSet.SESSION_DURATION != timedelta(0):
+            raise ValidationError({'end_datetime': 'Schedule duration must be in multiples of 2 hours.'})
 
     @staticmethod
     def _clone_schedule(schedule, *, start_datetime, end_datetime, status):
@@ -80,8 +112,21 @@ class ScheduleViewSet(viewsets.ModelViewSet):
         )
 
     @staticmethod
-    def _create_request(old_schedule, new_schedule):
-        return Request.objects.create(old_schedule=old_schedule, new_schedule=new_schedule)
+    def _create_request(old_schedule, new_schedule, extension=None):
+        return Request.objects.create(old_schedule=old_schedule, new_schedule=new_schedule, extension=extension)
+
+    @classmethod
+    def _validate_extension_hours(cls, extension_delta):
+        if extension_delta <= timedelta(0):
+            raise ValidationError({'end_datetime': 'End datetime must be later than the current end datetime when extending.'})
+
+        if extension_delta < cls.MINIMUM_SCHEDULE_DURATION:
+            raise ValidationError({'end_datetime': 'Schedule extension must be at least 2 hours.'})
+
+        if extension_delta % cls.SESSION_DURATION != timedelta(0):
+            raise ValidationError({'end_datetime': 'Schedule extension must be in multiples of 2 hours.'})
+
+        return int(extension_delta.total_seconds() // 3600)
 
     @staticmethod
     def _local_day_start(day_value):
@@ -98,11 +143,19 @@ class ScheduleViewSet(viewsets.ModelViewSet):
         }
 
     @staticmethod
+    def _to_hyperlink_formula(url, label):
+        if not url:
+            return ''
+        safe_url = str(url).replace('"', '""')
+        safe_label = str(label).replace('"', '""')
+        return f'=HYPERLINK("{safe_url}","{safe_label}")'
+
+    @staticmethod
     def _mark_overdue_upcoming_as_missed():
-        overdue_cutoff = timezone.now() - timedelta(minutes=15)
+        overdue_cutoff = timezone.now() - timedelta(minutes=30)
         Schedule.objects.filter(
             status=Schedule.STATUS_UPCOMING,
-            end_datetime__lt=overdue_cutoff,
+            start_datetime__lt=overdue_cutoff,
             check_in__isnull=True,
         ).update(status=Schedule.STATUS_MISSED)
 
@@ -243,7 +296,7 @@ class ScheduleViewSet(viewsets.ModelViewSet):
             status_value = status_param.strip().lower()
             if status_value not in self.ALLOWED_SCHEDULE_STATUS:
                 raise ValidationError(
-                    {'status': 'Invalid status. Allowed values are upcoming, done, missed, cancelled, rescheduled, pending, rejected.'}
+                    {'status': 'Invalid status. Allowed values are upcoming, done, missed, cancelled, rescheduled, extended, pending, rejected.'}
                 )
             queryset = queryset.filter(status=status_value)
 
@@ -295,6 +348,18 @@ class ScheduleViewSet(viewsets.ModelViewSet):
 
             self._validate_not_past(next_start_datetime, 'Tutors cannot reschedule to the past.')
 
+            same_start_datetime = next_start_datetime == instance.start_datetime
+            if same_start_datetime:
+                extension_hours = self._validate_extension_hours(next_end_datetime - instance.end_datetime)
+                request_obj = self._create_request(old_schedule=instance, new_schedule=None, extension=extension_hours)
+                if instance.status != Schedule.STATUS_PENDING:
+                    instance.status = Schedule.STATUS_PENDING
+                    instance.save(update_fields=['status'])
+
+                response_payload = self.get_serializer(instance).data
+                response_payload['request_id'] = request_obj.id
+                return Response(response_payload, status=status.HTTP_201_CREATED)
+
             new_schedule = self._clone_schedule(
                 instance,
                 start_datetime=next_start_datetime,
@@ -322,6 +387,15 @@ class ScheduleViewSet(viewsets.ModelViewSet):
         ):
             self._validate_not_past(next_start_datetime, 'Admins cannot reschedule to the past.')
 
+            same_start_datetime = next_start_datetime == instance.start_datetime
+            if same_start_datetime:
+                self._validate_extension_hours(next_end_datetime - instance.end_datetime)
+                self.perform_update(serializer)
+                if instance.status != Schedule.STATUS_EXTENDED:
+                    instance.status = Schedule.STATUS_EXTENDED
+                    instance.save(update_fields=['status'])
+                return Response(self.get_serializer(instance).data, status=status.HTTP_200_OK)
+
             new_schedule = self._clone_schedule(
                 instance,
                 start_datetime=next_start_datetime,
@@ -335,6 +409,14 @@ class ScheduleViewSet(viewsets.ModelViewSet):
         self.perform_update(serializer)
         return Response(serializer.data)
 
+    @extend_schema(
+        request=TutorScheduleRequestPayloadSerializer,
+        responses={
+            201: TutorScheduleRequestResponseSerializer,
+            400: MessageSerializer,
+            403: MessageSerializer,
+        },
+    )
     @action(detail=False, methods=['post'], url_path='request')
     def request_schedule(self, request):
         if not is_tutor(request.user):
@@ -445,17 +527,16 @@ class ScheduleViewSet(viewsets.ModelViewSet):
             'Start Datetime',
             'End Datetime',
             'Tutor',
-            'Student ID',
             'Student Name',
             'Subject Topic',
             'Schedule Description',
             'Status',
             'Check In Time',
-            'Check In Location Link',
+            'Check In Location',
             'Check In Description',
-            'Check In Photo URL',
+            'Check In Photo',
             'Check Out Time',
-            'Check Out Photo URL',
+            'Check Out Photo',
             'Total Shift Time',
         ])
 
@@ -470,36 +551,52 @@ class ScheduleViewSet(viewsets.ModelViewSet):
                 timezone.localtime(schedule.start_datetime).strftime('%Y-%m-%d %H:%M:%S'),
                 timezone.localtime(schedule.end_datetime).strftime('%Y-%m-%d %H:%M:%S'),
                 tutor_name,
-                schedule.student.id,
                 student_name_map.get(schedule.student.id, ''),
                 schedule.subject_topic,
                 schedule.description,
                 schedule.status,
                 timezone.localtime(check_in.check_in_time).strftime('%Y-%m-%d %H:%M:%S') if check_in and check_in.check_in_time else '',
-                build_location_search_url(check_in.check_in_location) if check_in else '',
+                self._to_hyperlink_formula(
+                    build_location_search_url(check_in.check_in_location) if check_in else '',
+                    'Open Location',
+                ),
                 check_in.description if check_in else '',
-                check_in.check_in_photo if check_in and check_in.check_in_photo else '',
+                self._to_hyperlink_formula(
+                    check_in.check_in_photo if check_in and check_in.check_in_photo else '',
+                    'View Check In Photo',
+                ),
                 timezone.localtime(check_out.check_out_time).strftime('%Y-%m-%d %H:%M:%S') if check_out and check_out.check_out_time else '',
-                check_out.check_out_photo if check_out and check_out.check_out_photo else '',
+                self._to_hyperlink_formula(
+                    check_out.check_out_photo if check_out and check_out.check_out_photo else '',
+                    'View Check Out Photo',
+                ),
                 str(check_out.total_shift_time) if check_out and check_out.total_shift_time else '',
             ])
 
-        report_title = f'Schedule Report {target_month.strftime("%Y-%m")}'
-        report_month_folder = target_month.strftime('%m-%Y')
+        generated_at = timezone.now()
+        report_name = report_file_name(
+            target_month=target_month.date(),
+            generated_at=generated_at,
+        )
 
         try:
             uploader = GoogleDriveUploader()
             csv_file = SimpleUploadedFile(
-                name=f'{report_title}.csv',
+                name=f'{report_name}.csv',
                 content=csv_buffer.getvalue().encode('utf-8'),
                 content_type='text/csv',
             )
             report_sheet = uploader.upload_file(
                 file_obj=csv_file,
-                folder_parts=[report_month_folder],
-                file_name=report_title,
+                folder_parts=report_folder_parts(target_month.date()),
+                file_name=report_name,
                 target_mime_type='application/vnd.google-apps.spreadsheet',
                 return_metadata=True,
+            )
+            uploader.format_monthly_report_sheet(
+                spreadsheet_id=report_sheet['id'],
+                sheet_title=target_month.strftime('%m-%Y'),
+                status_values=[status_value for status_value, _ in Schedule.STATUS_CHOICES],
             )
         except GoogleDriveUploadError as exc:
             return Response(
@@ -513,6 +610,93 @@ class ScheduleViewSet(viewsets.ModelViewSet):
                 'sheet_url': report_sheet['url'],
                 'sheet_id': report_sheet['id'],
                 'month': target_month.strftime('%Y-%m'),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: EmailBlastPermissionSerializer,
+            403: MessageSerializer,
+        },
+    )
+    @action(detail=False, methods=['get'], url_path='email-blast-permission')
+    def email_blast_permission(self, request):
+        if not is_admin(request.user):
+            return Response({'detail': 'You do not have permission to perform this action.'}, status=status.HTTP_403_FORBIDDEN)
+
+        permission = get_admin_blast_permission_state(admin_user=request.user)
+        return Response(
+            {
+                'can_daily': permission.can_daily,
+                'can_weekly': permission.can_weekly,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @extend_schema(
+        request=EmailBlastPayloadSerializer,
+        responses={
+            200: EmailBlastResponseSerializer,
+            400: MessageSerializer,
+            403: MessageSerializer,
+            502: MessageSerializer,
+        },
+        examples=[
+            OpenApiExample(
+                name='Daily blast request',
+                value={'mode': 'daily'},
+                request_only=True,
+            ),
+            OpenApiExample(
+                name='Weekly blast response',
+                value={
+                    'detail': 'Weekly blast processed.',
+                    'mode': 'weekly',
+                    'period_start': '2026-03-23',
+                    'period_end': '2026-03-29',
+                    'sent_count': 15,
+                    'failed_count': 2,
+                    'permission': {
+                        'can_daily': False,
+                        'can_weekly': False,
+                    },
+                },
+                response_only=True,
+            ),
+        ],
+    )
+    @action(detail=False, methods=['post'], url_path='email-blast')
+    def email_blast(self, request):
+        if not is_admin(request.user):
+            return Response({'detail': 'You do not have permission to perform this action.'}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = EmailBlastPayloadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        mode = serializer.validated_data['mode']
+        try:
+            result = send_admin_schedule_blast(admin_user=request.user, mode=mode)
+        except PermissionError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except GoogleDriveUploadError as exc:
+            return Response({'detail': f'Failed to write audit logs to Google Drive: {exc}'}, status=status.HTTP_502_BAD_GATEWAY)
+
+        return Response(
+            {
+                'detail': f'{mode.capitalize()} blast processed.',
+                'mode': result['mode'],
+                'period_start': result['period_start'],
+                'period_end': result['period_end'],
+                'sent_count': result['sent_count'],
+                'failed_count': result['failed_count'],
+                'permission': {
+                    'can_daily': result['permission'].can_daily,
+                    'can_weekly': result['permission'].can_weekly,
+                },
             },
             status=status.HTTP_200_OK,
         )

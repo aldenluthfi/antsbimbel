@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta
 
+from django.db.models import Q
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from drf_spectacular.utils import extend_schema, inline_serializer
@@ -42,17 +44,30 @@ class RequestViewSet(viewsets.ReadOnlyModelViewSet):
         )
 
     @classmethod
-    def _local_date_range_kwargs(cls, start_date, end_date):
-        return {
-            'new_schedule__start_datetime__gte': cls._local_day_start(start_date),
-            'new_schedule__start_datetime__lt': cls._local_day_start(end_date + timedelta(days=1)),
-        }
+    def _schedule_date_range_q(cls, start_date, end_date):
+        start_datetime = cls._local_day_start(start_date)
+        next_day_datetime = cls._local_day_start(end_date + timedelta(days=1))
+        return (
+            Q(new_schedule__start_datetime__gte=start_datetime)
+            & Q(new_schedule__start_datetime__lt=next_day_datetime)
+        ) | (
+            Q(new_schedule__isnull=True)
+            & Q(old_schedule__start_datetime__gte=start_datetime)
+            & Q(old_schedule__start_datetime__lt=next_day_datetime)
+        )
+
+    @staticmethod
+    def _with_effective_schedule_annotations(queryset):
+        return queryset.annotate(
+            effective_start_datetime=Coalesce('new_schedule__start_datetime', 'old_schedule__start_datetime'),
+            effective_end_datetime=Coalesce('new_schedule__end_datetime', 'old_schedule__end_datetime'),
+        )
 
     def _resolve_ordering(self, sort_by, sort_order):
         ordering_fields = {
             'created_at': 'created_at',
-            'start_datetime': 'new_schedule__start_datetime',
-            'end_datetime': 'new_schedule__end_datetime',
+            'start_datetime': 'effective_start_datetime',
+            'end_datetime': 'effective_end_datetime',
             'status': 'status',
         }
 
@@ -69,7 +84,7 @@ class RequestViewSet(viewsets.ReadOnlyModelViewSet):
 
     @extend_schema(parameters=REQUEST_LIST_QUERY_PARAMETERS)
     def list(self, request, *args, **kwargs):
-        queryset = self.filter_queryset(self.get_queryset())
+        queryset = self._with_effective_schedule_annotations(self.filter_queryset(self.get_queryset()))
         sort_by = request.query_params.get('sort_by', 'created_at').strip().lower()
         sort_order = request.query_params.get('sort_order', '').strip().lower()
         queryset = queryset.order_by(self._resolve_ordering(sort_by, sort_order))
@@ -103,7 +118,7 @@ class RequestViewSet(viewsets.ReadOnlyModelViewSet):
     )
     @action(detail=False, methods=['get'], url_path='calendar-pagination')
     def calendar_pagination(self, request):
-        queryset = self.filter_queryset(self.get_queryset())
+        queryset = self._with_effective_schedule_annotations(self.filter_queryset(self.get_queryset()))
         sort_by = request.query_params.get('sort_by', 'created_at').strip().lower()
         sort_order = request.query_params.get('sort_order', '').strip().lower()
         mode = request.query_params.get('mode', 'month').strip().lower()
@@ -132,7 +147,7 @@ class RequestViewSet(viewsets.ReadOnlyModelViewSet):
             next_cursor_date = period_start + timedelta(days=7)
 
         period_queryset = queryset.filter(
-            **self._local_date_range_kwargs(period_start, period_end)
+            self._schedule_date_range_q(period_start, period_end)
         ).order_by(self._resolve_ordering(sort_by, sort_order))
 
         serializer = self.get_serializer(period_queryset, many=True)
@@ -157,7 +172,7 @@ class RequestViewSet(viewsets.ReadOnlyModelViewSet):
             return queryset.none()
 
         if is_tutor(user):
-            queryset = queryset.filter(new_schedule__tutor=user)
+            queryset = queryset.filter(Q(new_schedule__tutor=user) | Q(old_schedule__tutor=user))
 
         tutor = self.request.query_params.get('tutor')
         student = self.request.query_params.get('student')
@@ -166,22 +181,30 @@ class RequestViewSet(viewsets.ReadOnlyModelViewSet):
         status_param = self.request.query_params.get('status')
 
         if tutor:
-            queryset = queryset.filter(new_schedule__tutor=tutor)
+            queryset = queryset.filter(Q(new_schedule__tutor=tutor) | Q(old_schedule__tutor=tutor))
 
         if student:
-            queryset = queryset.filter(new_schedule__student=student)
+            queryset = queryset.filter(Q(new_schedule__student=student) | Q(old_schedule__student=student))
 
         if start_date_param:
             start_date = parse_date(start_date_param)
             if not start_date:
                 raise ValidationError({'start_date': 'Invalid date format. Use YYYY-MM-DD or ISO datetime.'})
-            queryset = queryset.filter(new_schedule__start_datetime__gte=self._local_day_start(start_date))
+            day_start = self._local_day_start(start_date)
+            queryset = queryset.filter(
+                Q(new_schedule__start_datetime__gte=day_start)
+                | (Q(new_schedule__isnull=True) & Q(old_schedule__start_datetime__gte=day_start))
+            )
 
         if end_date_param:
             end_date = parse_date(end_date_param)
             if not end_date:
                 raise ValidationError({'end_date': 'Invalid date format. Use YYYY-MM-DD or ISO datetime.'})
-            queryset = queryset.filter(new_schedule__start_datetime__lt=self._local_day_start(end_date + timedelta(days=1)))
+            next_day_start = self._local_day_start(end_date + timedelta(days=1))
+            queryset = queryset.filter(
+                Q(new_schedule__start_datetime__lt=next_day_start)
+                | (Q(new_schedule__isnull=True) & Q(old_schedule__start_datetime__lt=next_day_start))
+            )
 
         if status_param:
             status_value = status_param.strip().lower()
@@ -191,6 +214,20 @@ class RequestViewSet(viewsets.ReadOnlyModelViewSet):
 
         return queryset
 
+    @extend_schema(
+        request=None,
+        responses={
+            200: RequestSerializer,
+            400: inline_serializer(
+                name='RequestApproveValidationError',
+                fields={'detail': serializers.CharField()},
+            ),
+            403: inline_serializer(
+                name='RequestApprovePermissionError',
+                fields={'detail': serializers.CharField()},
+            ),
+        },
+    )
     @action(detail=True, methods=['post'], url_path='approve')
     def approve(self, request, pk=None):
         if not is_admin(request.user):
@@ -198,16 +235,34 @@ class RequestViewSet(viewsets.ReadOnlyModelViewSet):
 
         request_obj = self.get_object()
         new_schedule = request_obj.new_schedule
+        old_schedule = request_obj.old_schedule
 
         if request_obj.status != Request.STATUS_PENDING:
             raise ValidationError({'detail': 'Only pending requests can be approved.'})
 
+        if request_obj.extension is not None:
+            if not old_schedule:
+                raise ValidationError({'detail': 'Extension requests require an old schedule.'})
+
+            if old_schedule.status != Schedule.STATUS_PENDING:
+                raise ValidationError({'detail': 'Only pending requests can be approved.'})
+
+            old_schedule.end_datetime = old_schedule.end_datetime + timedelta(hours=request_obj.extension)
+            old_schedule.status = Schedule.STATUS_EXTENDED
+            old_schedule.save(update_fields=['end_datetime', 'status'])
+            request_obj.status = Request.STATUS_RESOLVED
+            request_obj.save(update_fields=['status', 'updated_at'])
+            return Response(self.get_serializer(request_obj).data, status=status.HTTP_200_OK)
+
+        if not new_schedule:
+            raise ValidationError({'detail': 'Reschedule request does not have a new schedule.'})
+
         if new_schedule.status != Schedule.STATUS_PENDING:
             raise ValidationError({'detail': 'Only pending requests can be approved.'})
 
-        if request_obj.old_schedule and request_obj.old_schedule.status == Schedule.STATUS_PENDING:
-            request_obj.old_schedule.status = Schedule.STATUS_RESCHEDULED
-            request_obj.old_schedule.save(update_fields=['status'])
+        if old_schedule and old_schedule.status == Schedule.STATUS_PENDING:
+            old_schedule.status = Schedule.STATUS_RESCHEDULED
+            old_schedule.save(update_fields=['status'])
 
         new_schedule.status = Schedule.STATUS_UPCOMING
         new_schedule.save(update_fields=['status'])
@@ -216,6 +271,20 @@ class RequestViewSet(viewsets.ReadOnlyModelViewSet):
 
         return Response(self.get_serializer(request_obj).data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        request=None,
+        responses={
+            200: RequestSerializer,
+            400: inline_serializer(
+                name='RequestRejectValidationError',
+                fields={'detail': serializers.CharField()},
+            ),
+            403: inline_serializer(
+                name='RequestRejectPermissionError',
+                fields={'detail': serializers.CharField()},
+            ),
+        },
+    )
     @action(detail=True, methods=['post'], url_path='reject')
     def reject(self, request, pk=None):
         if not is_admin(request.user):
@@ -223,9 +292,23 @@ class RequestViewSet(viewsets.ReadOnlyModelViewSet):
 
         request_obj = self.get_object()
         new_schedule = request_obj.new_schedule
+        old_schedule = request_obj.old_schedule
 
         if request_obj.status != Request.STATUS_PENDING:
             raise ValidationError({'detail': 'Only pending requests can be rejected.'})
+
+        if request_obj.extension is not None:
+            if not old_schedule:
+                raise ValidationError({'detail': 'Extension requests require an old schedule.'})
+
+            old_schedule.status = Schedule.STATUS_UPCOMING
+            old_schedule.save(update_fields=['status'])
+            request_obj.status = Request.STATUS_RESOLVED
+            request_obj.save(update_fields=['status', 'updated_at'])
+            return Response(self.get_serializer(request_obj).data, status=status.HTTP_200_OK)
+
+        if not new_schedule:
+            raise ValidationError({'detail': 'Reschedule request does not have a new schedule.'})
 
         if new_schedule.status != Schedule.STATUS_PENDING:
             raise ValidationError({'detail': 'Only pending requests can be rejected.'})

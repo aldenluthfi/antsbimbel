@@ -1,11 +1,13 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { CalendarCheck, CalendarClock, LogOut, UserRound } from "lucide-react"
+import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { type Session } from "@/lib/api"
+import { type EmailBlastMode, parseApiError, schedulesApi, type Session } from "@/lib/api"
 import { RequestsSection } from "@/sections/RequestsSection"
 import { SchedulesSection } from "@/sections/SchedulesSection"
 import { StudentsSection } from "@/sections/StudentsSection"
+import { TutorPasswordSection } from "@/sections/TutorPasswordSection"
 import { UsersSection } from "@/sections/UsersSection"
 
 type DashboardTab = "users" | "students" | "schedules" | "requests"
@@ -19,6 +21,50 @@ export function DashboardPage({
 }) {
   const isAdmin = session.user.role === "admin"
   const [activeTab, setActiveTab] = useState<DashboardTab>(isAdmin ? "users" : "schedules")
+  const [blastPermission, setBlastPermission] = useState({ can_daily: false, can_weekly: false })
+  const [loadingPermission, setLoadingPermission] = useState(false)
+  const [sendingBlastMode, setSendingBlastMode] = useState<EmailBlastMode | null>(null)
+
+  useEffect(() => {
+    if (!isAdmin) {
+      return
+    }
+
+    const fetchBlastPermission = async () => {
+      setLoadingPermission(true)
+      try {
+        const permission = await schedulesApi.getEmailBlastPermission(session.token)
+        setBlastPermission(permission)
+      } catch {
+        setBlastPermission({ can_daily: false, can_weekly: false })
+      } finally {
+        setLoadingPermission(false)
+      }
+    }
+
+    void fetchBlastPermission()
+  }, [isAdmin, session.token])
+
+  const triggerBlast = async (mode: EmailBlastMode) => {
+    if (!isAdmin) {
+      return
+    }
+
+    setSendingBlastMode(mode)
+    try {
+      const response = await schedulesApi.sendEmailBlast(mode, session.token)
+      setBlastPermission(response.permission)
+      toast.success(`${mode === "daily" ? "Daily" : "Weekly"} blast sent`, {
+        description: `Success: ${response.sent_count}, Failed: ${response.failed_count}`,
+      })
+    } catch (error) {
+      toast.error(`${mode === "daily" ? "Daily" : "Weekly"} blast failed`, {
+        description: parseApiError(error),
+      })
+    } finally {
+      setSendingBlastMode(null)
+    }
+  }
 
   return (
     <main className="min-h-svh bg-background p-3 md:p-6">
@@ -37,10 +83,31 @@ export function DashboardPage({
             </p>
           </div>
 
-          <Button variant="outline" className="w-full sm:w-auto" onClick={onLogout}>
-            <LogOut className="size-4" />
-            Logout
-          </Button>
+          <div className="flex w-full gap-2 sm:w-auto">
+            {isAdmin ? (
+              <>
+                <Button
+                  className="w-full sm:w-auto"
+                  disabled={loadingPermission || sendingBlastMode !== null || !blastPermission.can_daily}
+                  onClick={() => void triggerBlast("daily")}
+                >
+                  Daily Blast
+                </Button>
+                <Button
+                  className="w-full sm:w-auto"
+                  disabled={loadingPermission || sendingBlastMode !== null || !blastPermission.can_weekly}
+                  onClick={() => void triggerBlast("weekly")}
+                >
+                  Weekly Blast
+                </Button>
+              </>
+            ) : null}
+            {!isAdmin ? <TutorPasswordSection token={session.token} /> : null}
+            <Button variant="outline" className="w-full sm:w-auto" onClick={onLogout}>
+              <LogOut className="size-4" />
+              Logout
+            </Button>
+          </div>
         </header>
 
         {isAdmin ? (

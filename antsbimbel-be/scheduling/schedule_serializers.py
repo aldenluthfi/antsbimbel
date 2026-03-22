@@ -14,6 +14,7 @@ User = get_user_model()
 
 class ScheduleSerializer(serializers.ModelSerializer):
     MINIMUM_SCHEDULE_DURATION = timedelta(hours=2)
+    SESSION_DURATION = timedelta(hours=2)
     tutor = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
     tutor_name = serializers.SerializerMethodField()
     student_name = serializers.SerializerMethodField()
@@ -22,6 +23,7 @@ class ScheduleSerializer(serializers.ModelSerializer):
     check_in_detail = serializers.SerializerMethodField()
     check_out_detail = serializers.SerializerMethodField()
     can_check_in = serializers.SerializerMethodField()
+    can_check_out = serializers.SerializerMethodField()
 
     class Meta:
         model = Schedule
@@ -41,6 +43,7 @@ class ScheduleSerializer(serializers.ModelSerializer):
             'check_in_detail',
             'check_out_detail',
             'can_check_in',
+            'can_check_out',
         ]
 
     def validate(self, attrs):
@@ -62,14 +65,20 @@ class ScheduleSerializer(serializers.ModelSerializer):
                     {'end_datetime': 'Start datetime and end datetime must be on the same date.'}
                 )
 
-            if end_datetime - start_datetime < self.MINIMUM_SCHEDULE_DURATION:
+            schedule_duration = end_datetime - start_datetime
+            if schedule_duration < self.MINIMUM_SCHEDULE_DURATION:
                 raise serializers.ValidationError({'end_datetime': 'Schedule duration must be at least 2 hours.'})
+
+            if schedule_duration % self.SESSION_DURATION != timedelta(0):
+                raise serializers.ValidationError({'end_datetime': 'Schedule duration must be in multiples of 2 hours.'})
 
         return attrs
 
     def validate_status(self, status_value):
-        if status_value in {Schedule.STATUS_RESCHEDULED, Schedule.STATUS_MISSED}:
-            raise serializers.ValidationError('Status "rescheduled" and "missed" are managed by the system and cannot be set manually.')
+        if status_value in {Schedule.STATUS_RESCHEDULED, Schedule.STATUS_MISSED, Schedule.STATUS_EXTENDED}:
+            raise serializers.ValidationError(
+                'Status "rescheduled", "missed", and "extended" are managed by the system and cannot be set manually.'
+            )
         return status_value
 
     def validate_tutor(self, tutor):
@@ -163,3 +172,7 @@ class ScheduleSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.BooleanField())
     def get_can_check_in(self, obj):
         return obj.can_check_in
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_can_check_out(self, obj):
+        return obj.can_check_out

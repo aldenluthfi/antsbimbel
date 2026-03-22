@@ -9,6 +9,7 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from .google_drive import GoogleDriveUploadError, GoogleDriveUploader
+from .drive_paths import attendance_folder_parts
 from .location_utils import build_location_search_url
 from .models import CheckIn, CheckOut, Schedule, Student
 from .permissions import is_admin, is_tutor
@@ -114,6 +115,35 @@ class CheckInSerializer(serializers.ModelSerializer):
                     {'check_in_time': 'Tutors can only check in at most 15 minutes before the schedule time.'}
                 )
 
+        if attrs.get('check_out_photo') is not None or attrs.get('check_out_time') is not None:
+            resolved_schedule = schedule
+            if not resolved_schedule and self.instance is not None:
+                try:
+                    resolved_schedule = self.instance.schedule
+                except Schedule.DoesNotExist:
+                    resolved_schedule = None
+
+            if resolved_schedule:
+                check_out_time = attrs.get('check_out_time') or timezone.now()
+                if timezone.is_naive(check_out_time):
+                    check_out_time = timezone.make_aware(check_out_time, timezone.get_current_timezone())
+
+                end_datetime = resolved_schedule.end_datetime
+                if timezone.is_naive(end_datetime):
+                    end_datetime = timezone.make_aware(end_datetime, timezone.get_current_timezone())
+
+                earliest_check_out = end_datetime - timedelta(minutes=15)
+                latest_check_out = end_datetime + timedelta(minutes=30)
+                if check_out_time < earliest_check_out or check_out_time > latest_check_out:
+                    raise serializers.ValidationError(
+                        {
+                            'check_out_time': (
+                                'Tutors can only check out from 15 minutes before '
+                                'until 30 minutes after the schedule end time.'
+                            )
+                        }
+                    )
+
         return attrs
 
     @extend_schema_field(serializers.IntegerField(allow_null=True))
@@ -183,11 +213,6 @@ class CheckInSerializer(serializers.ModelSerializer):
 
         return normalized
 
-    def _safe_folder_name(self, value):
-        normalized = re.sub(r'\s+', ' ', str(value or '').strip())
-        normalized = normalized.replace('/', '-').replace('\\', '-')
-        return normalized or 'unknown'
-
     def _resolve_display_name(self, user):
         display_name = compose_name(user.first_name, user.last_name)
         return display_name or user.username or f'tutor-{user.id}'
@@ -214,16 +239,18 @@ class CheckInSerializer(serializers.ModelSerializer):
         return ext.lstrip('.')
 
     def _upload_photo_to_drive(self, *, photo_file, check_type, check_time, tutor, student, schedule):
-        folder_month_year = check_time.strftime('%m-%Y')
-        folder_date = check_time.strftime('%Y-%m-%d')
-        tutor_name = self._safe_folder_name(self._resolve_display_name(tutor))
-        student_name = self._safe_folder_name(self._resolve_student_name(student))
+        tutor_name = self._resolve_display_name(tutor)
+        student_name = self._resolve_student_name(student)
         schedule_id = schedule.id if schedule else 'no-schedule'
-        attendance_folder = f'{tutor_name}-{student_name}-{schedule_id}'
 
         extension = self._get_photo_extension(photo_file)
         file_name = f'{check_type}.{extension}'
-        folder_parts = [folder_month_year, folder_date, attendance_folder]
+        folder_parts = attendance_folder_parts(
+            check_time=check_time,
+            tutor_name=tutor_name,
+            student_name=student_name,
+            schedule_id=schedule_id,
+        )
 
         try:
             uploader = GoogleDriveUploader()

@@ -3,6 +3,7 @@ import { format } from "date-fns"
 const WIB_TIMEZONE = "Asia/Jakarta"
 const WIB_OFFSET_HOURS = 7
 export const MIN_SCHEDULE_DURATION_MINUTES = 120
+export const SCHEDULE_SESSION_DURATION_MINUTES = 120
 
 function getWibDateTimeParts(date: Date): {
   year: string
@@ -182,6 +183,12 @@ export function validateScheduleRange(startIsoDate: string, endIsoDate: string):
   const durationMinutes = (endDate.getTime() - startDate.getTime()) / (1000 * 60)
   if (durationMinutes < MIN_SCHEDULE_DURATION_MINUTES) {
     return "Schedule duration must be at least 2 hours."
+  }
+
+  const durationMilliseconds = endDate.getTime() - startDate.getTime()
+  const sessionMilliseconds = SCHEDULE_SESSION_DURATION_MINUTES * 60 * 1000
+  if (durationMilliseconds % sessionMilliseconds !== 0) {
+    return "Schedule duration must be in multiples of 2 hours."
   }
 
   return null

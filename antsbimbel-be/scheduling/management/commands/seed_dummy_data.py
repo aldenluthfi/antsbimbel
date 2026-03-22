@@ -201,6 +201,7 @@ class Command(BaseCommand):
             Schedule.STATUS_DONE,
             Schedule.STATUS_CANCELLED,
             Schedule.STATUS_RESCHEDULED,
+            Schedule.STATUS_EXTENDED,
         ]
 
         schedules = []

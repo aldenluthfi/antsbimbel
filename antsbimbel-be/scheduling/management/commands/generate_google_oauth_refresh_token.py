@@ -10,6 +10,7 @@ class Command(BaseCommand):
 	help = 'Generate Google OAuth consent URL and exchange authorization code for refresh token.'
 	DEFAULT_SCOPES = [
 		'https://www.googleapis.com/auth/drive',
+		'https://www.googleapis.com/auth/spreadsheets',
 		'https://www.googleapis.com/auth/gmail.send',
 	]
 
@@ -22,7 +23,7 @@ class Command(BaseCommand):
 			'--scope',
 			dest='scope',
 			default=' '.join(self.DEFAULT_SCOPES),
-			help='OAuth scopes as a space-delimited string. Defaults to Drive + Gmail send scopes.',
+			help='OAuth scopes as a space-delimited string. Defaults to Drive + Sheets + Gmail send scopes.',
 		)
 
 	def handle(self, *args, **options):
@@ -43,7 +44,7 @@ class Command(BaseCommand):
 			raise CommandError('Missing redirect URI. Provide --redirect-uri or set GOOGLE_OAUTH_REDIRECT_URI.')
 
 		if not scope:
-			raise CommandError('Scope cannot be empty. Use Drive and Gmail send scopes for this project.')
+			raise CommandError('Scope cannot be empty. Use Drive, Sheets, and Gmail send scopes for this project.')
 
 		consent_params = {
 			'client_id': client_id,

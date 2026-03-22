@@ -30,6 +30,8 @@ export function StudentsSection({ token }: { token: string }) {
   const [creating, setCreating] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [editingStudentId, setEditingStudentId] = useState<number | null>(null)
+  const [deleteTargetStudent, setDeleteTargetStudent] = useState<Student | null>(null)
+  const [isDeletingStudent, setIsDeletingStudent] = useState(false)
   const [createForm, setCreateForm] = useState({
     first_name: "",
     last_name: "",
@@ -132,23 +134,26 @@ export function StudentsSection({ token }: { token: string }) {
     }
   }
 
-  const deleteStudent = async (student: Student) => {
-    const shouldDelete = window.confirm(`Delete student #${student.id}?`)
-    if (!shouldDelete) {
+  const submitDeleteStudent = async () => {
+    if (!deleteTargetStudent) {
       return
     }
 
+    setIsDeletingStudent(true)
     setError("")
     try {
-      await studentsApi.remove(student.id, token)
+      await studentsApi.remove(deleteTargetStudent.id, token)
       toast.success("Student deleted")
-      if (editingStudentId === student.id) {
+      if (editingStudentId === deleteTargetStudent.id) {
         cancelEditStudent()
       }
+      setDeleteTargetStudent(null)
       await fetchStudents()
     } catch (deleteError) {
       setError(parseApiError(deleteError))
       notifySubmitError(deleteError, "Delete student failed")
+    } finally {
+      setIsDeletingStudent(false)
     }
   }
 
@@ -171,22 +176,19 @@ export function StudentsSection({ token }: { token: string }) {
         className="h-9 w-full"
       />
 
-      {loading ? (
-        <div className="space-y-3">
-          <Skeleton className="h-8 w-40" />
-          <Skeleton className="h-20 w-full rounded-xl" />
-          <Skeleton className="h-20 w-full rounded-xl" />
-        </div>
-      ) : null}
-
       <div className="flex flex-col space-y-3 md:hidden">
         {loading && students.length === 0
           ? Array.from({ length: 2 }).map((_, index) => (
             <article key={`student-mobile-skeleton-${index}`} className="rounded-xl border border-border bg-background p-3 text-sm">
               <Skeleton className="h-5 w-32" />
-              <Skeleton className="mt-2 h-4 w-3/5" />
-              <Skeleton className="mt-2 h-4 w-full" />
-              <Skeleton className="mt-3 h-9 w-full" />
+              <Skeleton className="mt-2 h-4 w-16" />
+              <Skeleton className="mt-1 h-4 w-3/5" />
+              <Skeleton className="mt-1 h-4 w-full" />
+              <Skeleton className="mt-1 h-4 w-24" />
+              <div className="mt-3 flex gap-2">
+                <Skeleton className="h-9 flex-1" />
+                <Skeleton className="h-9 flex-1" />
+              </div>
             </article>
           ))
           : null}
@@ -201,7 +203,7 @@ export function StudentsSection({ token }: { token: string }) {
                 <Pencil className="size-4" />
                 Edit
               </Button>
-              <Button className="flex-1" size="sm" variant="destructive" onClick={() => deleteStudent(student)}>
+              <Button className="flex-1" size="sm" variant="destructive" onClick={() => setDeleteTargetStudent(student)}>
                 <Trash2 className="size-4" />
                 Delete
               </Button>
@@ -229,8 +231,20 @@ export function StudentsSection({ token }: { token: string }) {
             {loading && students.length === 0
               ? Array.from({ length: 5 }).map((_, index) => (
                 <tr key={`student-table-skeleton-${index}`} className="border-t border-border">
-                  <td className="px-3 py-2" colSpan={4}>
-                    <Skeleton className="h-8 w-full" />
+                  <td className="px-3 py-2">
+                    <Skeleton className="h-4 w-5/6" />
+                  </td>
+                  <td className="px-3 py-2">
+                    <Skeleton className="h-4 w-10" />
+                  </td>
+                  <td className="px-3 py-2">
+                    <Skeleton className="h-4 w-11/12" />
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="flex gap-2">
+                      <Skeleton className="h-8 w-20" />
+                      <Skeleton className="h-8 w-20" />
+                    </div>
                   </td>
                 </tr>
               ))
@@ -246,7 +260,7 @@ export function StudentsSection({ token }: { token: string }) {
                       <Pencil className="size-4" />
                       Edit
                     </Button>
-                    <Button size="sm" variant="destructive" onClick={() => deleteStudent(student)}>
+                    <Button size="sm" variant="destructive" onClick={() => setDeleteTargetStudent(student)}>
                       <Trash2 className="size-4" />
                       Delete
                     </Button>
@@ -421,6 +435,44 @@ export function StudentsSection({ token }: { token: string }) {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(deleteTargetStudent)}
+        onOpenChange={(open) => {
+          if (!open && !isDeletingStudent) {
+            setDeleteTargetStudent(null)
+          }
+        }}
+      >
+        <DialogContent className="w-[95vw] max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete student</DialogTitle>
+            <DialogDescription>
+              {deleteTargetStudent
+                ? `Delete student #${deleteTargetStudent.id} (${getStudentFullName(deleteTargetStudent)})? This action cannot be undone.`
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              disabled={isDeletingStudent}
+              type="button"
+              variant="outline"
+              onClick={() => setDeleteTargetStudent(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={isDeletingStudent || !deleteTargetStudent}
+              type="button"
+              variant="destructive"
+              onClick={submitDeleteStudent}
+            >
+              {isDeletingStudent ? "Deleting..." : "Delete"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </section>

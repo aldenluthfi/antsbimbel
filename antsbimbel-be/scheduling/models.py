@@ -71,6 +71,7 @@ class Schedule(models.Model):
 	STATUS_MISSED = 'missed'
 	STATUS_CANCELLED = 'cancelled'
 	STATUS_RESCHEDULED = 'rescheduled'
+	STATUS_EXTENDED = 'extended'
 	STATUS_PENDING = 'pending'
 	STATUS_REJECTED = 'rejected'
 
@@ -80,6 +81,7 @@ class Schedule(models.Model):
 		(STATUS_MISSED, 'Missed'),
 		(STATUS_CANCELLED, 'Cancelled'),
 		(STATUS_RESCHEDULED, 'Rescheduled'),
+		(STATUS_EXTENDED, 'Extended'),
 		(STATUS_PENDING, 'Pending'),
 		(STATUS_REJECTED, 'Rejected'),
 	)
@@ -130,6 +132,23 @@ class Schedule(models.Model):
 		check_in_open_time = self.start_datetime - timezone.timedelta(minutes=15)
 		return timezone.now() >= check_in_open_time
 
+	@property
+	def can_check_out(self):
+		if self.status not in {self.STATUS_UPCOMING, self.STATUS_PENDING}:
+			return False
+
+		if not self.check_in_id:
+			return False
+
+		check_in = getattr(self, 'check_in', None)
+		if check_in and getattr(check_in, 'check_out', None):
+			return False
+
+		now = timezone.now()
+		check_out_open_time = self.end_datetime - timezone.timedelta(minutes=15)
+		check_out_close_time = self.end_datetime + timezone.timedelta(minutes=30)
+		return check_out_open_time <= now <= check_out_close_time
+
 
 class Request(models.Model):
 	STATUS_PENDING = 'pending'
@@ -151,7 +170,10 @@ class Request(models.Model):
 		Schedule,
 		on_delete=models.PROTECT,
 		related_name='new_schedule_requests',
+		null=True,
+		blank=True,
 	)
+	extension = models.PositiveSmallIntegerField(null=True, blank=True)
 	status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING)
 	created_at = models.DateTimeField(auto_now_add=True)
 	updated_at = models.DateTimeField(auto_now=True)
@@ -160,4 +182,38 @@ class Request(models.Model):
 		ordering = ('-created_at', 'id')
 
 	def __str__(self):
-		return f'Request #{self.pk} - New schedule {self.new_schedule_id}'
+		if self.new_schedule_id:
+			return f'Request #{self.pk} - New schedule {self.new_schedule_id}'
+		return f'Request #{self.pk} - Old schedule {self.old_schedule_id}'
+
+
+class EmailBlastRecord(models.Model):
+	TYPE_DAILY = 'daily'
+	TYPE_WEEKLY = 'weekly'
+
+	TYPE_CHOICES = (
+		(TYPE_DAILY, 'Daily'),
+		(TYPE_WEEKLY, 'Weekly'),
+	)
+
+	admin = models.ForeignKey(
+		settings.AUTH_USER_MODEL,
+		on_delete=models.CASCADE,
+		related_name='email_blast_records',
+	)
+	blast_type = models.CharField(max_length=16, choices=TYPE_CHOICES)
+	period_start = models.DateField()
+	period_end = models.DateField()
+	created_at = models.DateTimeField(auto_now_add=True)
+
+	class Meta:
+		ordering = ('-created_at', 'id')
+		constraints = [
+			models.UniqueConstraint(
+				fields=['admin', 'blast_type', 'period_start', 'period_end'],
+				name='unique_email_blast_record_per_admin_period',
+			),
+		]
+
+	def __str__(self):
+		return f'EmailBlast #{self.pk} {self.blast_type} ({self.period_start}..{self.period_end})'
