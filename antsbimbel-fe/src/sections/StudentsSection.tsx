@@ -224,7 +224,7 @@ export function StudentsSection({ token }: { token: string }) {
               <th className="w-56 px-3 py-2">Name</th>
               <th className="w-40 px-3 py-2">Level</th>
               <th className="px-3 py-2">Email</th>
-              <th className="w-48 px-3 py-2">Actions</th>
+              <th className="w-56 px-3 py-2">Actions</th>
             </tr>
           </thead>
           <tbody>

@@ -284,8 +284,16 @@ export function RequestsSection({ token }: { token: string }) {
           onStudentSearchQueryChange={setStudentSearchQuery}
           status={statusFilter}
           statusOptions={[
-            { value: "pending", label: "Pending" },
-            { value: "resolved", label: "Resolved" },
+            {
+              value: "pending",
+              label: "Pending",
+              className: getRequestStatusPresentation("pending").className,
+            },
+            {
+              value: "resolved",
+              label: "Resolved",
+              className: getRequestStatusPresentation("resolved").className,
+            },
           ]}
           onStatusChange={(next) => {
             setPage(1)

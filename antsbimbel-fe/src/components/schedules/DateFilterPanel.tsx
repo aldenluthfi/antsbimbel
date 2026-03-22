@@ -1,5 +1,6 @@
 import { type ApiUser, type DateFilters, type SortOrder, type Student } from "@/lib/api"
 import { cn } from "@/lib/utils"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -19,6 +20,8 @@ import {
 
 import { DateRangePickerInput } from "./DatePickers"
 import { StudentCombobox, TutorCombobox } from "./EntityComboboxes"
+
+type StatusOption = { value: string; label: string; className?: string }
 
 export function DateFilterPanel({
   value,
@@ -50,20 +53,52 @@ export function DateFilterPanel({
   onSortByChange: (next: string) => void
   sortOrder: SortOrder
   onSortOrderChange: (next: SortOrder) => void
-  statusOptions?: Array<{ value: string; label: string }>
+  statusOptions?: StatusOption[]
   sortByOptions?: Array<{ value: string; label: string }>
 }) {
   const filterGridColumnsClass = showTutor ? "md:grid-cols-4" : "md:grid-cols-3"
   const resolvedStatusOptions =
     statusOptions ?? [
-      { value: "upcoming", label: "Upcoming" },
-      { value: "done", label: "Done" },
-      { value: "missed", label: "Missed" },
-      { value: "cancelled", label: "Cancelled" },
-      { value: "rescheduled", label: "Rescheduled" },
-      { value: "extended", label: "Extended" },
-      { value: "pending", label: "Pending" },
-      { value: "rejected", label: "Rejected" },
+      {
+        value: "upcoming",
+        label: "Upcoming",
+        className: "bg-sky-100 text-sky-700 border-sky-200 hover:bg-sky-200 hover:text-sky-900 hover:border-sky-300",
+      },
+      {
+        value: "done",
+        label: "Done",
+        className: "bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-200 hover:text-emerald-900 hover:border-emerald-300",
+      },
+      {
+        value: "missed",
+        label: "Missed",
+        className: "bg-red-100 text-red-700 border-red-200 hover:bg-red-200 hover:text-red-900 hover:border-red-300",
+      },
+      {
+        value: "cancelled",
+        label: "Cancelled",
+        className: "bg-zinc-100 text-zinc-700 border-zinc-200 hover:bg-zinc-200 hover:text-zinc-900 hover:border-zinc-300",
+      },
+      {
+        value: "rescheduled",
+        label: "Rescheduled",
+        className: "bg-amber-100 text-amber-700 border-amber-200 hover:bg-amber-200 hover:text-amber-900 hover:border-amber-300",
+      },
+      {
+        value: "extended",
+        label: "Extended",
+        className: "bg-teal-100 text-teal-700 border-teal-200 hover:bg-teal-200 hover:text-teal-900 hover:border-teal-300",
+      },
+      {
+        value: "pending",
+        label: "Pending",
+        className: "bg-orange-100 text-orange-700 border-orange-200 hover:bg-orange-200 hover:text-orange-900 hover:border-orange-300",
+      },
+      {
+        value: "rejected",
+        label: "Rejected",
+        className: "bg-rose-100 text-rose-700 border-rose-200 hover:bg-rose-200 hover:text-rose-900 hover:border-rose-300",
+      },
     ]
   const resolvedSortByOptions =
     sortByOptions ?? [
@@ -71,16 +106,9 @@ export function DateFilterPanel({
       { value: "end_datetime", label: "End datetime" },
       { value: "status", label: "Status" },
     ]
-  const selectedStatusLabels = resolvedStatusOptions
-    .filter((statusOption) => status.includes(statusOption.value))
-    .map((statusOption) => statusOption.label)
-
-  const statusButtonLabel =
-    selectedStatusLabels.length === 0
-      ? "All status"
-      : selectedStatusLabels.length <= 2
-        ? selectedStatusLabels.join(", ")
-        : `${selectedStatusLabels.length} selected`
+  const selectedStatusOptions = resolvedStatusOptions.filter((statusOption) => status.includes(statusOption.value))
+  const statusBadgeOptions = selectedStatusOptions.slice(0, 2)
+  const additionalStatusCount = Math.max(selectedStatusOptions.length - statusBadgeOptions.length, 0)
 
   const toggleStatus = (statusValue: string) => {
     if (status.includes(statusValue)) {
@@ -138,12 +166,24 @@ export function DateFilterPanel({
             <span className="font-medium">Status</span>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button type="button" variant="outline" className="h-9 w-full justify-start font-normal">
-                  {statusButtonLabel}
+                <Button type="button" variant="outline" className="h-9 w-full justify-start gap-1 overflow-hidden font-normal">
+                  {selectedStatusOptions.length === 0 ? (
+                    "All status"
+                  ) : (
+                    <span className="flex min-w-0 items-center gap-1">
+                      {statusBadgeOptions.map((statusOption) => (
+                        <Badge key={statusOption.value} variant="outline" className={cn("pointer-events-none", statusOption.className)}>
+                          {statusOption.label}
+                        </Badge>
+                      ))}
+                      {additionalStatusCount > 0 ? (
+                        <span className="text-xs text-muted-foreground">+{additionalStatusCount}</span>
+                      ) : null}
+                    </span>
+                  )}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-56">
-                <DropdownMenuLabel>Status filters</DropdownMenuLabel>
                 <DropdownMenuCheckboxItem
                   checked={status.length === 0}
                   onCheckedChange={() => onStatusChange([])}
