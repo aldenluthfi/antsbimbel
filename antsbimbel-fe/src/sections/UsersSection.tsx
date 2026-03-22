@@ -242,7 +242,7 @@ export function UsersSection({ token }: { token: string }) {
                 <Pencil className="size-4" />
                 Edit
               </Button>
-              <Button className="flex-1" size="sm" variant="secondary" onClick={() => setResetTargetUser(user)}>
+              <Button className="flex-1" size="sm" variant="outline" onClick={() => setResetTargetUser(user)}>
                 <KeyRound className="size-4" />
                 Reset password
               </Button>
