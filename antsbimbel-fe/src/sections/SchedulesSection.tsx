@@ -1108,7 +1108,7 @@ export function SchedulesSection({
               {canManage ? <th className="w-48 px-3 py-2">Student</th> : null}
               <th className="w-104 px-3 py-2">Time range</th>
               <th className="w-28 px-3 py-2">Status</th>
-              {!canManage ? <th className="w-28 px-3 py-2">Check In</th> : null}
+              {!canManage ? <th className="w-20 px-3 py-2">Check In</th> : null}
               {!canManage ? <th className="w-28 px-3 py-2">Check Out</th> : null}
               <th className={canManage ? "w-64 px-3 py-2" : "w-36 px-3 py-2"}>Actions</th>
             </tr>
