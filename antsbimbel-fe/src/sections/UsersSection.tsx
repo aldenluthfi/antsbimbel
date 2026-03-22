@@ -48,6 +48,7 @@ export function UsersSection({ token }: { token: string }) {
     email: "",
     is_active: true,
   })
+  const editingUser = editingUserId ? users.find((user) => user.id === editingUserId) ?? null : null
 
   const fetchUsers = async () => {
     setLoading(true)
@@ -242,10 +243,6 @@ export function UsersSection({ token }: { token: string }) {
                 <Pencil className="size-4" />
                 Edit
               </Button>
-              <Button className="flex-1" size="sm" variant="outline" onClick={() => setResetTargetUser(user)}>
-                <KeyRound className="size-4" />
-                Reset password
-              </Button>
               <Button className="flex-1" size="sm" variant="destructive" onClick={() => setDeleteTargetUser(user)}>
                 <Trash2 className="size-4" />
                 Delete
@@ -305,10 +302,6 @@ export function UsersSection({ token }: { token: string }) {
                     <Button size="sm" variant="outline" onClick={() => openEditUser(user)}>
                       <Pencil className="size-4" />
                       Edit
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => setResetTargetUser(user)}>
-                      <KeyRound className="size-4" />
-                      Reset password
                     </Button>
                     <Button size="sm" variant="destructive" onClick={() => setDeleteTargetUser(user)}>
                       <Trash2 className="size-4" />
@@ -410,7 +403,7 @@ export function UsersSection({ token }: { token: string }) {
             </div>
             <DialogFooter>
               <Button disabled={creating} type="submit">
-                {creating ? "Creating..." : "Save new user"}
+                {creating ? "Creating..." : "Save"}
               </Button>
               <Button type="button" variant="outline" onClick={() => setIsCreateOpen(false)}>
                 Cancel
@@ -481,10 +474,23 @@ export function UsersSection({ token }: { token: string }) {
             </div>
             <DialogFooter>
               <Button disabled={isEditing} type="submit">
-                {isEditing ? "Saving..." : "Save changes"}
+                {isEditing ? "Saving..." : "Save"}
               </Button>
               <Button type="button" variant="outline" onClick={cancelEditUser}>
                 Cancel
+              </Button>
+              <Button
+                disabled={isResettingPassword || !editingUser}
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  if (editingUser) {
+                    setResetTargetUser(editingUser)
+                  }
+                }}
+              >
+                <KeyRound className="size-4" />
+                Reset password
               </Button>
             </DialogFooter>
           </form>

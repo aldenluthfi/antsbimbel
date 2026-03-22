@@ -354,7 +354,7 @@ export function StudentsSection({ token }: { token: string }) {
             </div>
             <DialogFooter>
               <Button disabled={creating} type="submit">
-                {creating ? "Creating..." : "Save new student"}
+                {creating ? "Creating..." : "Save"}
               </Button>
               <Button type="button" variant="outline" onClick={() => setIsCreateOpen(false)}>
                 Cancel
@@ -428,7 +428,7 @@ export function StudentsSection({ token }: { token: string }) {
             </div>
             <DialogFooter>
               <Button disabled={isEditing} type="submit">
-                {isEditing ? "Saving..." : "Save changes"}
+                {isEditing ? "Saving..." : "Save"}
               </Button>
               <Button type="button" variant="outline" onClick={cancelEditStudent}>
                 Cancel
