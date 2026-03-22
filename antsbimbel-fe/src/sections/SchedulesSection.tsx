@@ -76,6 +76,7 @@ export function SchedulesSection({
   canManage: boolean
   tutorId?: number
 }) {
+  const TUTOR_RESCHEDULABLE_STATUSES: Schedule["status"][] = ["upcoming", "extended"]
   const [filters, setFilters] = useState<DateFilters>(
     tutorId ? { ...DEFAULT_FILTERS, tutorId: String(tutorId) } : DEFAULT_FILTERS
   )
@@ -85,7 +86,7 @@ export function SchedulesSection({
   const [students, setStudents] = useState<Student[]>([])
   const [schedules, setSchedules] = useState<Schedule[]>([])
   const [calendarSchedules, setCalendarSchedules] = useState<Schedule[]>([])
-  const [statusFilter, setStatusFilter] = useState<ScheduleStatusFilter>("upcoming")
+  const [statusFilter, setStatusFilter] = useState<ScheduleStatusFilter>(["extended", "upcoming"])
   const [sortBy, setSortBy] = useState<ScheduleSortBy>("start_datetime")
   const [sortOrder, setSortOrder] = useState<SortOrder>("asc")
   const [calendarMode, setCalendarMode] = useState<CalendarMode>("month")
@@ -779,7 +780,7 @@ export function SchedulesSection({
             className="w-full sm:w-auto"
             onClick={() => {
               setFilters(tutorId ? { ...DEFAULT_FILTERS, tutorId: String(tutorId) } : DEFAULT_FILTERS)
-              setStatusFilter("upcoming")
+              setStatusFilter(["extended", "upcoming"])
               setSortBy("start_datetime")
               setSortOrder("asc")
               setPage(1)
@@ -1006,7 +1007,7 @@ export function SchedulesSection({
                       Delete
                     </Button>
                   </div>
-                ) : schedule.status === "upcoming" ? (
+                ) : TUTOR_RESCHEDULABLE_STATUSES.includes(schedule.status) ? (
                   <Button size="sm" variant="outline" className="w-full" onClick={() => openTutorReschedule(schedule)}>
                     Reschedule
                   </Button>
@@ -1161,7 +1162,7 @@ export function SchedulesSection({
                       <Button size="sm" variant="outline" onClick={() => openDetailDialog(schedule, "calendar")}>
                         See details
                       </Button>
-                      {schedule.status === "upcoming" ? (
+                      {TUTOR_RESCHEDULABLE_STATUSES.includes(schedule.status) ? (
                         <Button size="sm" variant="outline" onClick={() => openTutorReschedule(schedule)}>
                           Reschedule
                         </Button>

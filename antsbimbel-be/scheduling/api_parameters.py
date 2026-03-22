@@ -32,7 +32,7 @@ LIST_QUERY_PARAMETERS = [
     ),
     OpenApiParameter(
         name='status',
-        description='Filter by schedule status. Allowed: upcoming, done, autodone, missed, cancelled, rescheduled, extended, pending, rejected.',
+        description='Filter by schedule status. Allowed: upcoming, done, autodone, missed, cancelled, rescheduled, extended, pending, rejected. Supports repeated query params (?status=upcoming&status=extended) or comma-separated values (?status=upcoming,extended).',
         required=False,
         type=OpenApiTypes.STR,
         location=OpenApiParameter.QUERY,
@@ -103,7 +103,7 @@ REQUEST_LIST_QUERY_PARAMETERS = [
     ),
     OpenApiParameter(
         name='status',
-        description='Filter by request status. Allowed: pending, resolved.',
+        description='Filter by request status. Allowed: pending, resolved. Supports repeated query params (?status=pending&status=resolved) or comma-separated values (?status=pending,resolved).',
         required=False,
         type=OpenApiTypes.STR,
         location=OpenApiParameter.QUERY,
@@ -156,7 +156,7 @@ REQUEST_CALENDAR_PAGINATION_QUERY_PARAMETERS = [
     ),
     OpenApiParameter(
         name='status',
-        description='Filter by request status. Allowed: pending, resolved.',
+        description='Filter by request status. Allowed: pending, resolved. Supports repeated query params (?status=pending&status=resolved) or comma-separated values (?status=pending,resolved).',
         required=False,
         type=OpenApiTypes.STR,
         location=OpenApiParameter.QUERY,

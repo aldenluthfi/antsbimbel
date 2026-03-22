@@ -75,7 +75,7 @@ export function RequestsSection({ token }: { token: string }) {
   const [filters, setFilters] = useState<DateFilters>(DEFAULT_FILTERS)
   const [tutorSearchQuery, setTutorSearchQuery] = useState("")
   const [studentSearchQuery, setStudentSearchQuery] = useState("")
-  const [statusFilter, setStatusFilter] = useState<RequestStatusFilter>("pending")
+  const [statusFilter, setStatusFilter] = useState<RequestStatusFilter>(["pending"])
   const [sortBy, setSortBy] = useState<RequestSortBy>("created_at")
   const [sortOrder, setSortOrder] = useState<SortOrder>("asc")
   const [calendarMode, setCalendarMode] = useState<CalendarMode>("month")
@@ -260,7 +260,7 @@ export function RequestsSection({ token }: { token: string }) {
           className="w-full sm:w-auto"
           onClick={() => {
             setFilters(DEFAULT_FILTERS)
-            setStatusFilter("pending")
+            setStatusFilter(["pending"])
             setSortBy("created_at")
             setSortOrder("asc")
             setPage(1)

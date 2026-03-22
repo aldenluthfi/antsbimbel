@@ -81,9 +81,9 @@ export type DateFilters = {
   endDate: string
 }
 
-export type ScheduleStatusFilter = "" | Schedule["status"]
+export type ScheduleStatusFilter = Schedule["status"][]
 export type RequestStatus = "pending" | "resolved"
-export type RequestStatusFilter = "" | RequestStatus
+export type RequestStatusFilter = RequestStatus[]
 
 export type ScheduleSortBy = "start_datetime" | "end_datetime" | "status"
 
@@ -295,6 +295,17 @@ function buildListQuery(filters: DateFilters, page: number, pageSize: number): s
   return `?${params.toString()}`
 }
 
+function appendStatusFilters(params: URLSearchParams, statusValues: string[]): void {
+  statusValues.forEach((statusValue) => {
+    const normalizedStatusValue = statusValue.trim()
+    if (!normalizedStatusValue) {
+      return
+    }
+
+    params.append("status", normalizedStatusValue)
+  })
+}
+
 function buildScheduleListQuery(query: ScheduleListQuery): string {
   const params = new URLSearchParams()
   params.set("page", String(query.page))
@@ -314,8 +325,8 @@ function buildScheduleListQuery(query: ScheduleListQuery): string {
   if (query.filters.endDate) {
     params.set("end_date", query.filters.endDate)
   }
-  if (query.status) {
-    params.set("status", query.status)
+  if (query.status.length > 0) {
+    appendStatusFilters(params, query.status)
   }
 
   return `?${params.toString()}`
@@ -340,8 +351,8 @@ function buildScheduleCalendarPaginationQuery(query: ScheduleCalendarPaginationQ
   if (query.filters.endDate) {
     params.set("end_date", query.filters.endDate)
   }
-  if (query.status) {
-    params.set("status", query.status)
+  if (query.status.length > 0) {
+    appendStatusFilters(params, query.status)
   }
 
   return `?${params.toString()}`
@@ -366,8 +377,8 @@ function buildRequestListQuery(query: RequestListQuery): string {
   if (query.filters.endDate) {
     params.set("end_date", query.filters.endDate)
   }
-  if (query.status) {
-    params.set("status", query.status)
+  if (query.status.length > 0) {
+    appendStatusFilters(params, query.status)
   }
 
   return `?${params.toString()}`
@@ -392,8 +403,8 @@ function buildRequestCalendarPaginationQuery(query: RequestCalendarPaginationQue
   if (query.filters.endDate) {
     params.set("end_date", query.filters.endDate)
   }
-  if (query.status) {
-    params.set("status", query.status)
+  if (query.status.length > 0) {
+    appendStatusFilters(params, query.status)
   }
 
   return `?${params.toString()}`

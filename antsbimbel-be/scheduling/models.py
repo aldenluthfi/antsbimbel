@@ -128,7 +128,7 @@ class Schedule(models.Model):
 
 	@property
 	def can_check_in(self):
-		if self.status not in {self.STATUS_UPCOMING, self.STATUS_PENDING}:
+		if self.status not in {self.STATUS_UPCOMING, self.STATUS_EXTENDED, self.STATUS_PENDING}:
 			return False
 
 		check_in_open_time = self.start_datetime - timezone.timedelta(minutes=15)
@@ -136,7 +136,7 @@ class Schedule(models.Model):
 
 	@property
 	def can_check_out(self):
-		if self.status not in {self.STATUS_UPCOMING, self.STATUS_PENDING}:
+		if self.status not in {self.STATUS_UPCOMING, self.STATUS_EXTENDED, self.STATUS_PENDING}:
 			return False
 
 		if not self.check_in_id:

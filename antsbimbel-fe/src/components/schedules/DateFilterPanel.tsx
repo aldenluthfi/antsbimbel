@@ -1,5 +1,14 @@
 import { type ApiUser, type DateFilters, type SortOrder, type Student } from "@/lib/api"
 import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   Select,
   SelectContent,
@@ -35,8 +44,8 @@ export function DateFilterPanel({
   students?: Student[]
   onTutorSearchQueryChange?: (query: string) => void
   onStudentSearchQueryChange?: (query: string) => void
-  status: string
-  onStatusChange: (next: string) => void
+  status: string[]
+  onStatusChange: (next: string[]) => void
   sortBy: string
   onSortByChange: (next: string) => void
   sortOrder: SortOrder
@@ -62,6 +71,25 @@ export function DateFilterPanel({
       { value: "end_datetime", label: "End datetime" },
       { value: "status", label: "Status" },
     ]
+  const selectedStatusLabels = resolvedStatusOptions
+    .filter((statusOption) => status.includes(statusOption.value))
+    .map((statusOption) => statusOption.label)
+
+  const statusButtonLabel =
+    selectedStatusLabels.length === 0
+      ? "All status"
+      : selectedStatusLabels.length <= 2
+        ? selectedStatusLabels.join(", ")
+        : `${selectedStatusLabels.length} selected`
+
+  const toggleStatus = (statusValue: string) => {
+    if (status.includes(statusValue)) {
+      onStatusChange(status.filter((selectedStatusValue) => selectedStatusValue !== statusValue))
+      return
+    }
+
+    onStatusChange([...status, statusValue])
+  }
 
   return (
     <>
@@ -108,19 +136,32 @@ export function DateFilterPanel({
 
           <label className="flex flex-col space-y-2 text-sm">
             <span className="font-medium">Status</span>
-            <Select value={status || "all"} onValueChange={(next) => onStatusChange(next === "all" ? "" : next)}>
-              <SelectTrigger className="h-9 w-full">
-                <SelectValue placeholder="All status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All status</SelectItem>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="outline" className="h-9 w-full justify-start font-normal">
+                  {statusButtonLabel}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-56">
+                <DropdownMenuLabel>Status filters</DropdownMenuLabel>
+                <DropdownMenuCheckboxItem
+                  checked={status.length === 0}
+                  onCheckedChange={() => onStatusChange([])}
+                >
+                  All status
+                </DropdownMenuCheckboxItem>
+                <DropdownMenuSeparator />
                 {resolvedStatusOptions.map((statusOption) => (
-                  <SelectItem key={statusOption.value} value={statusOption.value}>
+                  <DropdownMenuCheckboxItem
+                    key={statusOption.value}
+                    checked={status.includes(statusOption.value)}
+                    onCheckedChange={() => toggleStatus(statusOption.value)}
+                  >
                     {statusOption.label}
-                  </SelectItem>
+                  </DropdownMenuCheckboxItem>
                 ))}
-              </SelectContent>
-            </Select>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </label>
         </div>
       </div>

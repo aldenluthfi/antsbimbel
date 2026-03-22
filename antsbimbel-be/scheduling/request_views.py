@@ -37,6 +37,18 @@ class RequestViewSet(viewsets.ReadOnlyModelViewSet):
     }
 
     @staticmethod
+    def _parse_status_filters(raw_values):
+        parsed_values = []
+        for raw_value in raw_values:
+            for status_piece in str(raw_value).split(','):
+                normalized_status = status_piece.strip().lower()
+                if normalized_status:
+                    parsed_values.append(normalized_status)
+
+        # Keep input order while dropping duplicates.
+        return list(dict.fromkeys(parsed_values))
+
+    @staticmethod
     def _local_day_start(day_value):
         return timezone.make_aware(
             datetime.combine(day_value, datetime.min.time()),
@@ -178,7 +190,7 @@ class RequestViewSet(viewsets.ReadOnlyModelViewSet):
         student = self.request.query_params.get('student')
         start_date_param = self.request.query_params.get('start_date')
         end_date_param = self.request.query_params.get('end_date')
-        status_param = self.request.query_params.get('status')
+        raw_status_values = self.request.query_params.getlist('status')
 
         if tutor:
             queryset = queryset.filter(Q(new_schedule__tutor=tutor) | Q(old_schedule__tutor=tutor))
@@ -206,11 +218,19 @@ class RequestViewSet(viewsets.ReadOnlyModelViewSet):
                 | (Q(new_schedule__isnull=True) & Q(old_schedule__start_datetime__lt=next_day_start))
             )
 
-        if status_param:
-            status_value = status_param.strip().lower()
-            if status_value not in self.ALLOWED_REQUEST_STATUS:
-                raise ValidationError({'status': 'Invalid status. Allowed values are pending, resolved.'})
-            queryset = queryset.filter(status=status_value)
+        status_values = self._parse_status_filters(raw_status_values)
+        if status_values:
+            invalid_status_values = sorted(set(status_values) - self.ALLOWED_REQUEST_STATUS)
+            if invalid_status_values:
+                raise ValidationError(
+                    {
+                        'status': (
+                            'Invalid status value(s). Allowed values are pending, resolved. '
+                            'You can pass multiple values as repeated status params or a comma-separated list.'
+                        )
+                    }
+                )
+            queryset = queryset.filter(status__in=status_values)
 
         return queryset
 

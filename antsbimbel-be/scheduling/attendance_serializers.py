@@ -75,8 +75,8 @@ class CheckInSerializer(serializers.ModelSerializer):
         if request and is_tutor(request.user) and schedule.tutor.id != request.user.id:
             raise serializers.ValidationError('Tutors can only link check-ins to their own schedules.')
 
-        if schedule.status not in {Schedule.STATUS_UPCOMING, Schedule.STATUS_PENDING}:
-            raise serializers.ValidationError('Check-in can only be linked to upcoming or pending schedules.')
+        if schedule.status not in {Schedule.STATUS_UPCOMING, Schedule.STATUS_EXTENDED, Schedule.STATUS_PENDING}:
+            raise serializers.ValidationError('Check-in can only be linked to upcoming, extended, or pending schedules.')
 
         return schedule
 

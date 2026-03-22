@@ -72,6 +72,10 @@ class ScheduleViewSet(viewsets.ModelViewSet):
         Schedule.STATUS_PENDING,
         Schedule.STATUS_REJECTED,
     }
+    TUTOR_RESCHEDULABLE_STATUS = {
+        Schedule.STATUS_UPCOMING,
+        Schedule.STATUS_EXTENDED,
+    }
     MINIMUM_SCHEDULE_DURATION = timedelta(hours=2)
     SESSION_DURATION = timedelta(hours=2)
 
@@ -136,6 +140,18 @@ class ScheduleViewSet(viewsets.ModelViewSet):
             timezone.get_current_timezone(),
         )
 
+    @staticmethod
+    def _parse_status_filters(raw_values):
+        parsed_values = []
+        for raw_value in raw_values:
+            for status_piece in str(raw_value).split(','):
+                normalized_status = status_piece.strip().lower()
+                if normalized_status:
+                    parsed_values.append(normalized_status)
+
+        # Keep input order while dropping duplicates.
+        return list(dict.fromkeys(parsed_values))
+
     @classmethod
     def _local_date_range_kwargs(cls, start_date, end_date):
         return {
@@ -155,7 +171,10 @@ class ScheduleViewSet(viewsets.ModelViewSet):
     def _mark_overdue_upcoming_as_missed():
         overdue_cutoff = timezone.now() - timedelta(minutes=30)
         Schedule.objects.filter(
-            status=Schedule.STATUS_UPCOMING,
+            status__in={
+                Schedule.STATUS_UPCOMING,
+                Schedule.STATUS_EXTENDED,
+            },
             start_datetime__lt=overdue_cutoff,
             check_in__isnull=True,
         ).update(status=Schedule.STATUS_MISSED)
@@ -288,7 +307,7 @@ class ScheduleViewSet(viewsets.ModelViewSet):
         student = self.request.query_params.get('student')
         start_date_param = self.request.query_params.get('start_date')
         end_date_param = self.request.query_params.get('end_date')
-        status_param = self.request.query_params.get('status')
+        raw_status_values = self.request.query_params.getlist('status')
 
         if tutor:
             queryset = queryset.filter(tutor=tutor)
@@ -308,13 +327,20 @@ class ScheduleViewSet(viewsets.ModelViewSet):
                 raise ValidationError({'end_date': 'Invalid date format. Use YYYY-MM-DD or ISO datetime.'})
             queryset = queryset.filter(start_datetime__lt=self._local_day_start(end_date + timedelta(days=1)))
 
-        if status_param:
-            status_value = status_param.strip().lower()
-            if status_value not in self.ALLOWED_SCHEDULE_STATUS:
+        status_values = self._parse_status_filters(raw_status_values)
+        if status_values:
+            invalid_status_values = sorted(set(status_values) - self.ALLOWED_SCHEDULE_STATUS)
+            if invalid_status_values:
                 raise ValidationError(
-                    {'status': 'Invalid status. Allowed values are upcoming, done, autodone, missed, cancelled, rescheduled, extended, pending, rejected.'}
+                    {
+                        'status': (
+                            'Invalid status value(s). Allowed values are upcoming, done, autodone, missed, '
+                            'cancelled, rescheduled, extended, pending, rejected. '
+                            'You can pass multiple values as repeated status params or a comma-separated list.'
+                        )
+                    }
                 )
-            queryset = queryset.filter(status=status_value)
+            queryset = queryset.filter(status__in=status_values)
 
         return queryset
 
@@ -340,6 +366,9 @@ class ScheduleViewSet(viewsets.ModelViewSet):
         if is_tutor(request.user):
             if not partial:
                 raise ValidationError({'detail': 'Tutors can only submit partial updates for rescheduling.'})
+
+            if instance.status not in self.TUTOR_RESCHEDULABLE_STATUS:
+                raise ValidationError({'detail': 'Only upcoming or extended schedules can be rescheduled.'})
 
             payload_keys = set(request.data.keys())
             invalid_fields = payload_keys - {'start_datetime', 'end_datetime'}
@@ -382,7 +411,7 @@ class ScheduleViewSet(viewsets.ModelViewSet):
                 end_datetime=next_end_datetime,
                 status=Schedule.STATUS_PENDING,
             )
-            instance.status = Schedule.STATUS_PENDING
+            instance.status = Schedule.STATUS_RESCHEDULED
             instance.save(update_fields=['status'])
 
             request_obj = self._create_request(old_schedule=instance, new_schedule=new_schedule)
