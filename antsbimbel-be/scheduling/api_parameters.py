@@ -32,14 +32,14 @@ LIST_QUERY_PARAMETERS = [
     ),
     OpenApiParameter(
         name='status',
-        description='Filter by schedule status. Allowed: upcoming, done, cancelled, rescheduled.',
+        description='Filter by schedule status. Allowed: upcoming, done, missed, cancelled, rescheduled, pending, rejected.',
         required=False,
         type=OpenApiTypes.STR,
         location=OpenApiParameter.QUERY,
     ),
     OpenApiParameter(
         name='sort_by',
-        description='Schedule sort field. Allowed: id, scheduled_at, status.',
+        description='Schedule sort field. Allowed: start_datetime, end_datetime, status.',
         required=False,
         type=OpenApiTypes.STR,
         location=OpenApiParameter.QUERY,
@@ -71,6 +71,111 @@ LIST_PAGINATION_QUERY_PARAMETERS = [
 ]
 
 SCHEDULE_LIST_QUERY_PARAMETERS = [*LIST_QUERY_PARAMETERS, *LIST_PAGINATION_QUERY_PARAMETERS]
+
+REQUEST_LIST_QUERY_PARAMETERS = [
+    OpenApiParameter(
+        name='tutor',
+        description='Filter by tutor user id.',
+        required=False,
+        type=OpenApiTypes.INT,
+        location=OpenApiParameter.QUERY,
+    ),
+    OpenApiParameter(
+        name='student',
+        description='Filter by student primary key id.',
+        required=False,
+        type=OpenApiTypes.INT,
+        location=OpenApiParameter.QUERY,
+    ),
+    OpenApiParameter(
+        name='start_date',
+        description='Start of date range. Use YYYY-MM-DD.',
+        required=False,
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+    ),
+    OpenApiParameter(
+        name='end_date',
+        description='End of date range. Use YYYY-MM-DD.',
+        required=False,
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+    ),
+    OpenApiParameter(
+        name='status',
+        description='Filter by request status. Allowed: pending, resolved.',
+        required=False,
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+    ),
+    OpenApiParameter(
+        name='sort_by',
+        description='Request sort field. Allowed: created_at, start_datetime, end_datetime, status.',
+        required=False,
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+    ),
+    OpenApiParameter(
+        name='sort_order',
+        description='Sort direction. Allowed: asc, desc. Defaults to desc.',
+        required=False,
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+    ),
+    *LIST_PAGINATION_QUERY_PARAMETERS,
+]
+
+REQUEST_CALENDAR_PAGINATION_QUERY_PARAMETERS = [
+    OpenApiParameter(
+        name='tutor',
+        description='Filter by tutor user id.',
+        required=False,
+        type=OpenApiTypes.INT,
+        location=OpenApiParameter.QUERY,
+    ),
+    OpenApiParameter(
+        name='student',
+        description='Filter by student primary key id.',
+        required=False,
+        type=OpenApiTypes.INT,
+        location=OpenApiParameter.QUERY,
+    ),
+    OpenApiParameter(
+        name='start_date',
+        description='Start of date range. Use YYYY-MM-DD.',
+        required=False,
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+    ),
+    OpenApiParameter(
+        name='end_date',
+        description='End of date range. Use YYYY-MM-DD.',
+        required=False,
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+    ),
+    OpenApiParameter(
+        name='status',
+        description='Filter by request status. Allowed: pending, resolved.',
+        required=False,
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+    ),
+    OpenApiParameter(
+        name='mode',
+        description='Calendar mode. Allowed: month, week. Defaults to month.',
+        required=False,
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+    ),
+    OpenApiParameter(
+        name='cursor_date',
+        description='Reference date in YYYY-MM-DD. Defaults to today.',
+        required=False,
+        type=OpenApiTypes.STR,
+        location=OpenApiParameter.QUERY,
+    ),
+]
 
 CALENDAR_PAGINATION_QUERY_PARAMETERS = [
     *LIST_QUERY_PARAMETERS,

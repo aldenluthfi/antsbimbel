@@ -25,6 +25,6 @@ class CheckOutAdmin(admin.ModelAdmin):
 
 @admin.register(Schedule)
 class ScheduleAdmin(admin.ModelAdmin):
-	list_display = ('id', 'tutor', 'student', 'subject_topic', 'scheduled_at', 'status')
+	list_display = ('id', 'tutor', 'student', 'subject_topic', 'start_datetime', 'end_datetime', 'status')
 	search_fields = ('student__id', 'student__first_name', 'student__last_name', 'subject_topic', 'tutor__username')
-	list_filter = ('status', 'scheduled_at')
+	list_filter = ('status', 'start_datetime', 'end_datetime')

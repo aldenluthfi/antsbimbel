@@ -1,9 +1,14 @@
 import { useMemo } from "react"
-import { ChevronLeft, ChevronRight } from "lucide-react"
+import { ChevronLeft, ChevronRight, Clock3, GraduationCap, Presentation } from "lucide-react"
+import { format } from "date-fns"
 
 import { Button } from "@/components/ui/button"
 import { type CalendarItem, type CalendarMode, endOfWeek, sameDate, startOfWeek } from "@/lib/helpers/schedule"
 import { cn } from "@/lib/utils"
+
+function formatWeekRangeLabel(start: Date, end: Date): string {
+  return `${format(start, "MMMM do, yyyy")} - ${format(end, "MMMM do, yyyy")}`
+}
 
 export function CalendarBoard({
   title,
@@ -47,10 +52,36 @@ export function CalendarBoard({
 
   const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
+  const renderCalendarItem = (item: CalendarItem) => (
+    <button
+      key={item.id}
+      type="button"
+      onClick={() => onItemClick?.(item)}
+      className={cn(
+        "w-full rounded-md border border-muted/70 bg-muted/60 px-1.5 py-1 text-left text-[11px] leading-tight",
+        onItemClick ? "cursor-pointer" : "cursor-default",
+        item.statusDotClassName
+      )}
+    >
+      <p className="flex items-center gap-1 font-medium">
+        <Clock3 className="size-3" aria-hidden="true" />
+        <span>{item.scheduleHourLabel}</span>
+      </p>
+      <p className="flex items-center gap-1 font-medium">
+        <Presentation className="size-3" aria-hidden="true" />
+        <span>{item.tutorName}</span>
+      </p>
+      <p className="flex items-center gap-1">
+        <GraduationCap className="size-3" aria-hidden="true" />
+        <span>{item.studentName}</span>
+      </p>
+    </button>
+  )
+
   return (
-    <section className="space-y-3 rounded-2xl border border-border bg-background p-3">
+    <section className="flex flex-col space-y-3 rounded-2xl border border-border bg-background p-3">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h4 className="font-semibold">{title}</h4>
+        <h4>{title}</h4>
       </div>
 
       <div className="flex w-full flex-col justify-x-between gap-2 sm:flex-row">
@@ -79,10 +110,10 @@ export function CalendarBoard({
       <p className="text-sm text-muted-foreground">
         {mode === "month"
           ? cursorDate.toLocaleDateString(undefined, { month: "long", year: "numeric" })
-          : `${visibleRange.start.toLocaleDateString()} - ${visibleRange.end.toLocaleDateString()}`}
+          : formatWeekRangeLabel(visibleRange.start, visibleRange.end)}
       </p>
 
-      <div className="hidden grid-cols-7 gap-2 text-xs font-medium text-muted-foreground md:grid">
+      <div className="hidden grid-cols-7 gap-2 text-sm font-medium text-muted-foreground md:grid">
         {weekDays.map((day) => (
           <div key={day} className="rounded-md bg-muted px-2 py-1 text-center">
             {day}
@@ -107,23 +138,9 @@ export function CalendarBoard({
 
               return (
                 <div key={day.toISOString()} className="min-h-24 rounded-lg border border-border bg-card p-2">
-                  <p className="mb-1 text-xs font-semibold">{day.getDate()}</p>
-                  <div className="space-y-1">
-                    {dayItems.slice(0, 3).map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => onItemClick?.(item)}
-                        className={cn(
-                          "w-full rounded-md border border-muted/70 bg-muted/60 px-1.5 py-1 text-left text-[11px] leading-tight",
-                          onItemClick ? "cursor-pointer" : "cursor-default",
-                          item.statusDotClassName
-                        )}
-                      >
-                        <p className="font-medium">{item.studentName}</p>
-                        <p>{item.tutorName}</p>
-                      </button>
-                    ))}
+                  <p className="mb-1 text-sm font-semibold">{day.getDate()}</p>
+                  <div className="flex flex-col space-y-1">
+                    {dayItems.slice(0, 3).map((item) => renderCalendarItem(item))}
                     {dayItems.length > 3 ? (
                       <p className="text-[11px] text-muted-foreground">+{dayItems.length - 3} more</p>
                     ) : null}
@@ -150,31 +167,11 @@ export function CalendarBoard({
 
               return (
                 <div key={day.toISOString()} className="min-h-24 rounded-lg border border-border bg-card p-2">
-                  <p className="mb-1 text-xs font-semibold">
-                    {day.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}
+                  <p className="mb-1 text-sm font-semibold">
+                    {day.getDate()}
                   </p>
-                  <div className="space-y-1">
-                    {dayItems.length === 0 ? (
-                      <p className="text-[11px] text-muted-foreground">No events</p>
-                    ) : null}
-                    {dayItems.slice(0, 3).map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => onItemClick?.(item)}
-                        className={cn(
-                          "w-full rounded-md border border-muted/70 bg-muted/60 px-1.5 py-1 text-left text-[11px] leading-tight",
-                          onItemClick ? "cursor-pointer" : "cursor-default",
-                          item.statusDotClassName
-                        )}
-                      >
-                        <p className="font-medium">{item.studentName}</p>
-                        <p>{item.tutorName}</p>
-                      </button>
-                    ))}
-                    {dayItems.length > 3 ? (
-                      <p className="text-[11px] text-muted-foreground">+{dayItems.length - 3} more</p>
-                    ) : null}
+                  <div className="flex flex-col space-y-1">
+                    {dayItems.map((item) => renderCalendarItem(item))}
                   </div>
                 </div>
               )

@@ -39,6 +39,7 @@ class CheckInSerializer(serializers.ModelSerializer):
             'student',
             'check_in_time',
             'check_in_location',
+            'description',
             'check_in_photo',
             'check_in_photo_url',
             'check_out_id',
@@ -73,6 +74,9 @@ class CheckInSerializer(serializers.ModelSerializer):
         if request and is_tutor(request.user) and schedule.tutor.id != request.user.id:
             raise serializers.ValidationError('Tutors can only link check-ins to their own schedules.')
 
+        if schedule.status not in {Schedule.STATUS_UPCOMING, Schedule.STATUS_PENDING}:
+            raise serializers.ValidationError('Check-in can only be linked to upcoming or pending schedules.')
+
         return schedule
 
     def validate(self, attrs):
@@ -100,14 +104,14 @@ class CheckInSerializer(serializers.ModelSerializer):
             if timezone.is_naive(check_in_time):
                 check_in_time = timezone.make_aware(check_in_time, timezone.get_current_timezone())
 
-            scheduled_at = schedule.scheduled_at
-            if timezone.is_naive(scheduled_at):
-                scheduled_at = timezone.make_aware(scheduled_at, timezone.get_current_timezone())
+            start_datetime = schedule.start_datetime
+            if timezone.is_naive(start_datetime):
+                start_datetime = timezone.make_aware(start_datetime, timezone.get_current_timezone())
 
-            earliest_check_in = scheduled_at - timedelta(minutes=30)
+            earliest_check_in = start_datetime - timedelta(minutes=15)
             if check_in_time < earliest_check_in:
                 raise serializers.ValidationError(
-                    {'check_in_time': 'Tutors can only check in at most 30 minutes before the schedule time.'}
+                    {'check_in_time': 'Tutors can only check in at most 15 minutes before the schedule time.'}
                 )
 
         return attrs

@@ -7,7 +7,7 @@ import {
   AttendancePhoto,
   CalendarBoard,
   DateFilterPanel,
-  DateTimePickerInput,
+  SingleDateTimeRangePickerInput,
   Pagination,
   StudentCombobox,
   TutorCombobox,
@@ -23,6 +23,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Select,
   SelectContent,
@@ -46,19 +47,24 @@ import {
   usersApi,
 } from "@/lib/api"
 import {
+  addMinutesToTimeValue,
   buildAttendancePhotoUrl,
   type CalendarItem,
   type CalendarMode,
   displayStudentName,
   displayTutorName,
   formatDateTime,
+  formatDateTimeRange,
+  formatTimeRange,
   getCurrentWibDate,
   getScheduleStatusPresentation,
+  MIN_SCHEDULE_DURATION_MINUTES,
   REPORT_MONTH_OPTIONS,
   toDateInputValue,
   toScheduledAtIso,
   toTimeInputValue,
   toWibCalendarDate,
+  validateScheduleRange,
 } from "@/lib/helpers/schedule"
 
 export function SchedulesSection({
@@ -79,9 +85,9 @@ export function SchedulesSection({
   const [students, setStudents] = useState<Student[]>([])
   const [schedules, setSchedules] = useState<Schedule[]>([])
   const [calendarSchedules, setCalendarSchedules] = useState<Schedule[]>([])
-  const [statusFilter, setStatusFilter] = useState<ScheduleStatusFilter>("")
-  const [sortBy, setSortBy] = useState<ScheduleSortBy>("scheduled_at")
-  const [sortOrder, setSortOrder] = useState<SortOrder>("desc")
+  const [statusFilter, setStatusFilter] = useState<ScheduleStatusFilter>("upcoming")
+  const [sortBy, setSortBy] = useState<ScheduleSortBy>("start_datetime")
+  const [sortOrder, setSortOrder] = useState<SortOrder>("asc")
   const [calendarMode, setCalendarMode] = useState<CalendarMode>("month")
   const [calendarCursorDate, setCalendarCursorDate] = useState(getCurrentWibDate())
   const [page, setPage] = useState(1)
@@ -92,6 +98,7 @@ export function SchedulesSection({
   const [cameraStatus, setCameraStatus] = useState<"idle" | "granted" | "denied">("idle")
   const [locationStatus, setLocationStatus] = useState<"idle" | "granted" | "denied">("idle")
   const [checkInLocation, setCheckInLocation] = useState("")
+  const [checkInDescription, setCheckInDescription] = useState("")
   const [activeCaptureSchedule, setActiveCaptureSchedule] = useState<Schedule | null>(null)
   const [captureMode, setCaptureMode] = useState<"check-in" | "check-out" | null>(null)
   const [capturedPhoto, setCapturedPhoto] = useState<File | null>(null)
@@ -130,9 +137,34 @@ export function SchedulesSection({
     tutor: tutorId ? String(tutorId) : "",
     student: "",
     subject_topic: "",
-    scheduled_at: "",
+    description: "",
+    start_datetime: "",
+    end_datetime: "",
     status: "upcoming" as Schedule["status"],
   })
+  const [rescheduleTarget, setRescheduleTarget] = useState<Schedule | null>(null)
+  const [rescheduleStartDatetime, setRescheduleStartDatetime] = useState("")
+  const [rescheduleEndDatetime, setRescheduleEndDatetime] = useState("")
+  const [isSubmittingReschedule, setIsSubmittingReschedule] = useState(false)
+  const [isTutorRequestOpen, setIsTutorRequestOpen] = useState(false)
+  const [isSubmittingTutorRequest, setIsSubmittingTutorRequest] = useState(false)
+  const [tutorRequestForm, setTutorRequestForm] = useState({
+    student: "",
+    subject_topic: "",
+    description: "",
+    start_datetime: "",
+    end_datetime: "",
+  })
+  const DEFAULT_START_TIME = "08:00"
+
+  const getDefaultEndTime = (startTime: string): string => {
+    const nextEndTime = addMinutesToTimeValue(startTime, MIN_SCHEDULE_DURATION_MINUTES)
+    if (!nextEndTime) {
+      return ""
+    }
+
+    return nextEndTime <= startTime ? "23:59" : nextEndTime
+  }
 
   const fetchSchedules = async () => {
     setLoading(true)
@@ -252,7 +284,9 @@ export function SchedulesSection({
       tutor: tutorId ? String(tutorId) : "",
       student: "",
       subject_topic: "",
-      scheduled_at: "",
+      description: "",
+      start_datetime: "",
+      end_datetime: "",
       status: "upcoming",
     })
   }
@@ -262,28 +296,46 @@ export function SchedulesSection({
     setIsFormOpen(true)
   }
 
+  const closeScheduleForm = () => {
+    setIsFormOpen(false)
+    resetForm()
+  }
+
   const openEdit = (schedule: Schedule) => {
     setEditing(schedule)
     setFormState({
       tutor: String(schedule.tutor),
       student: String(schedule.student),
       subject_topic: schedule.subject_topic,
-      scheduled_at: schedule.scheduled_at,
+      description: schedule.description,
+      start_datetime: schedule.start_datetime,
+      end_datetime: schedule.end_datetime,
       status: schedule.status,
     })
     setIsFormOpen(true)
   }
 
-  const updateScheduledDate = (nextDate: string) => {
-    const timePart = toTimeInputValue(formState.scheduled_at) || "00:00"
-    const nextScheduledAt = nextDate ? toScheduledAtIso(nextDate, timePart) : ""
-    setFormState({ ...formState, scheduled_at: nextScheduledAt })
+  const openTutorReschedule = (schedule: Schedule) => {
+    setRescheduleTarget(schedule)
+    setRescheduleStartDatetime(schedule.start_datetime)
+    setRescheduleEndDatetime(schedule.end_datetime)
   }
 
-  const updateScheduledTime = (nextTime: string) => {
-    const datePart = toDateInputValue(formState.scheduled_at)
-    const nextScheduledAt = datePart && nextTime ? toScheduledAtIso(datePart, nextTime) : ""
-    setFormState({ ...formState, scheduled_at: nextScheduledAt })
+  const closeTutorReschedule = () => {
+    setRescheduleTarget(null)
+    setRescheduleStartDatetime("")
+    setRescheduleEndDatetime("")
+  }
+
+  const openTutorRequest = () => {
+    setTutorRequestForm({
+      student: "",
+      subject_topic: "",
+      description: "",
+      start_datetime: "",
+      end_datetime: "",
+    })
+    setIsTutorRequestOpen(true)
   }
 
   const saveSchedule = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -296,16 +348,9 @@ export function SchedulesSection({
       setError("Please select a student.")
       return
     }
-    const scheduledDate = toDateInputValue(formState.scheduled_at)
-    const scheduledTime = toTimeInputValue(formState.scheduled_at)
-
-    if (!scheduledDate || !scheduledTime) {
-      setError("Please select schedule date and time.")
-      return
-    }
-
-    if (!formState.scheduled_at) {
-      setError("Invalid schedule date or time.")
+    const rangeValidationError = validateScheduleRange(formState.start_datetime, formState.end_datetime)
+    if (rangeValidationError) {
+      setError(rangeValidationError)
       return
     }
 
@@ -316,7 +361,9 @@ export function SchedulesSection({
       tutor: Number(formState.tutor),
       student: Number(formState.student),
       subject_topic: formState.subject_topic,
-      scheduled_at: formState.scheduled_at,
+      description: formState.description,
+      start_datetime: formState.start_datetime,
+      end_datetime: formState.end_datetime,
       status: formState.status,
     }
 
@@ -335,6 +382,77 @@ export function SchedulesSection({
       setError(parseApiError(saveError))
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  const submitTutorReschedule = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!rescheduleTarget) {
+      return
+    }
+
+    const rangeValidationError = validateScheduleRange(rescheduleStartDatetime, rescheduleEndDatetime)
+    if (rangeValidationError) {
+      setError(rangeValidationError)
+      return
+    }
+
+    setError("")
+    setIsSubmittingReschedule(true)
+
+    try {
+      await schedulesApi.update(
+        rescheduleTarget.id,
+        {
+          start_datetime: rescheduleStartDatetime,
+          end_datetime: rescheduleEndDatetime,
+        },
+        token
+      )
+      toast.success("Reschedule request submitted")
+      closeTutorReschedule()
+      await fetchSchedules()
+    } catch (submitError) {
+      setError(parseApiError(submitError))
+    } finally {
+      setIsSubmittingReschedule(false)
+    }
+  }
+
+  const submitTutorScheduleRequest = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!tutorRequestForm.student.trim()) {
+      setError("Please select a student.")
+      return
+    }
+
+    const rangeValidationError = validateScheduleRange(tutorRequestForm.start_datetime, tutorRequestForm.end_datetime)
+    if (rangeValidationError) {
+      setError(rangeValidationError)
+      return
+    }
+
+    setError("")
+    setIsSubmittingTutorRequest(true)
+
+    try {
+      await schedulesApi.requestSchedule(
+        {
+          student: Number(tutorRequestForm.student),
+          subject_topic: tutorRequestForm.subject_topic,
+          description: tutorRequestForm.description,
+          start_datetime: tutorRequestForm.start_datetime,
+          end_datetime: tutorRequestForm.end_datetime,
+        },
+        token
+      )
+      toast.success("Schedule request submitted")
+      setIsTutorRequestOpen(false)
+      await fetchSchedules()
+    } catch (submitError) {
+      setError(parseApiError(submitError))
+    } finally {
+      setIsSubmittingTutorRequest(false)
     }
   }
 
@@ -478,6 +596,14 @@ export function SchedulesSection({
     await requestLocationPermission()
   }
 
+  const clearCapturedPhoto = () => {
+    setCapturedPhoto(null)
+    if (capturedPhotoUrl) {
+      URL.revokeObjectURL(capturedPhotoUrl)
+      setCapturedPhotoUrl(null)
+    }
+  }
+
   const requestCaptureAccess = async (mode: "check-in" | "check-out") => {
     setError("")
     const hasCamera = await requestCameraPermission()
@@ -492,14 +618,11 @@ export function SchedulesSection({
     setError("")
     setActiveCaptureSchedule(schedule)
     setCaptureMode(mode)
-    setCapturedPhoto(null)
+    clearCapturedPhoto()
     setCheckInLocation("")
+    setCheckInDescription("")
     setCameraStatus("idle")
     setLocationStatus("idle")
-    if (capturedPhotoUrl) {
-      URL.revokeObjectURL(capturedPhotoUrl)
-      setCapturedPhotoUrl(null)
-    }
 
     await requestCaptureAccess(mode)
   }
@@ -508,11 +631,8 @@ export function SchedulesSection({
     stopCamera()
     setActiveCaptureSchedule(null)
     setCaptureMode(null)
-    setCapturedPhoto(null)
-    if (capturedPhotoUrl) {
-      URL.revokeObjectURL(capturedPhotoUrl)
-      setCapturedPhotoUrl(null)
-    }
+    clearCapturedPhoto()
+    setCheckInDescription("")
   }
 
   const captureFromCamera = () => {
@@ -543,14 +663,24 @@ export function SchedulesSection({
 
         const file = new File([blob], `capture-${Date.now()}.jpg`, { type: "image/jpeg" })
         setCapturedPhoto(file)
-        if (capturedPhotoUrl) {
-          URL.revokeObjectURL(capturedPhotoUrl)
-        }
-        setCapturedPhotoUrl(URL.createObjectURL(file))
+        setCapturedPhotoUrl((previousPhotoUrl) => {
+          if (previousPhotoUrl) {
+            URL.revokeObjectURL(previousPhotoUrl)
+          }
+
+          return URL.createObjectURL(file)
+        })
+        stopCamera()
       },
       "image/jpeg",
       0.92
     )
+  }
+
+  const retakePhoto = async () => {
+    setError("")
+    clearCapturedPhoto()
+    await requestCameraPermission()
   }
 
   const submitCapturedAttendance = async () => {
@@ -576,6 +706,7 @@ export function SchedulesSection({
         formData.append("schedule_id", String(activeCaptureSchedule.id))
         formData.append("student", String(activeCaptureSchedule.student))
         formData.append("check_in_location", checkInLocation.trim())
+        formData.append("description", checkInDescription.trim())
         formData.append("check_in_photo", capturedPhoto)
         formData.append("check_in_time", new Date().toISOString())
         await attendanceApi.create(formData, token)
@@ -609,6 +740,9 @@ export function SchedulesSection({
     setDetailDialogState(null)
   }
 
+  const getAttendanceModeLabel = (mode: "check-in" | "check-out") =>
+    mode === "check-in" ? "Check in" : "Check out"
+
   const calendarItems = useMemo<CalendarItem[]>(
     () =>
       calendarSchedules.map((schedule) => {
@@ -617,9 +751,10 @@ export function SchedulesSection({
           id: `schedule-${schedule.id}`,
           studentName: displayStudentName(schedule),
           tutorName: displayTutorName(schedule),
+          scheduleHourLabel: formatTimeRange(schedule.start_datetime, schedule.end_datetime),
           statusLabel: statusPresentation.label,
           statusDotClassName: statusPresentation.className,
-          date: toWibCalendarDate(schedule.scheduled_at),
+          date: toWibCalendarDate(schedule.start_datetime),
           schedule,
         }
       }),
@@ -627,9 +762,9 @@ export function SchedulesSection({
   )
 
   return (
-    <section className="space-y-4 rounded-2xl border border-border bg-card p-4 shadow-sm">
+    <section className="flex flex-col space-y-4 rounded-2xl border border-border bg-card p-4 shadow-sm">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h3 className="text-lg font-semibold">Schedules</h3>
+        <h3>Schedules</h3>
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
           <Button
             size="sm"
@@ -637,9 +772,9 @@ export function SchedulesSection({
             className="w-full sm:w-auto"
             onClick={() => {
               setFilters(tutorId ? { ...DEFAULT_FILTERS, tutorId: String(tutorId) } : DEFAULT_FILTERS)
-              setStatusFilter("")
-              setSortBy("scheduled_at")
-              setSortOrder("desc")
+              setStatusFilter("upcoming")
+              setSortBy("start_datetime")
+              setSortOrder("asc")
               setPage(1)
             }}
           >
@@ -649,10 +784,14 @@ export function SchedulesSection({
             <Button size="sm" className="w-full sm:w-auto" onClick={openCreate}>
               Create schedule
             </Button>
-          ) : null}
+          ) : (
+            <Button size="sm" className="w-full sm:w-auto" onClick={openTutorRequest}>
+              Request schedule
+            </Button>
+          )}
         </div>
       </div>
-      <section className="space-y-3 rounded-2xl border border-border bg-background p-3">
+      <section className="flex flex-col space-y-3 rounded-2xl border border-border bg-background p-3">
         <DateFilterPanel
           value={filters}
           onChange={(next) => {
@@ -668,12 +807,12 @@ export function SchedulesSection({
           status={statusFilter}
           onStatusChange={(next) => {
             setPage(1)
-            setStatusFilter(next)
+            setStatusFilter(next as ScheduleStatusFilter)
           }}
           sortBy={sortBy}
           onSortByChange={(next) => {
             setPage(1)
-            setSortBy(next)
+            setSortBy(next as ScheduleSortBy)
           }}
           sortOrder={sortOrder}
           onSortOrderChange={(next) => {
@@ -684,12 +823,12 @@ export function SchedulesSection({
 
         {canManage ? (
           <>
-            <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+            <p className="type-eyebrow">
               Generate Report
             </p>
-            <div className="space-y-3 rounded-xl border border-border bg-card p-3">
+            <div className="flex flex-col space-y-3 rounded-xl border border-border bg-card p-3">
               <div className="grid gap-3 md:grid-cols-3 md:items-end">
-                <label className="space-y-2 text-sm">
+                <label className="flex flex-col space-y-2 text-sm">
                   <span className="font-medium">Month</span>
                   <Select
                     value={reportMonthParts.month}
@@ -709,7 +848,7 @@ export function SchedulesSection({
                     </SelectContent>
                   </Select>
                 </label>
-                <label className="space-y-2 text-sm">
+                <label className="flex flex-col space-y-2 text-sm">
                   <span className="font-medium">Year</span>
                   <Select
                     value={reportMonthParts.year}
@@ -743,99 +882,35 @@ export function SchedulesSection({
         ) : null}
       </section>
 
-      {loading ? <p className="text-sm text-muted-foreground">Loading schedules...</p> : null}
-
-      {isFormOpen ? (
-        <form onSubmit={saveSchedule} className="grid gap-3 rounded-xl border border-border bg-background p-3 md:grid-cols-2">
-          <label className="space-y-2 text-sm">
-            <span className="font-medium">Tutor ID</span>
-            {tutorId ? (
-              <Input disabled value={formState.tutor} className="h-9 w-full bg-muted" />
-            ) : (
-              <TutorCombobox
-                tutors={tutors}
-                value={formState.tutor}
-                onChange={(nextTutorId) => setFormState({ ...formState, tutor: nextTutorId })}
-                placeholder="Select tutor"
-              />
-            )}
-          </label>
-          <label className="space-y-2 text-sm">
-            <span className="font-medium">Student ID</span>
-            {canManage ? (
-              <StudentCombobox
-                students={students}
-                value={formState.student}
-                onChange={(nextStudentId) => setFormState({ ...formState, student: nextStudentId })}
-                placeholder="Select student"
-              />
-            ) : (
-              <input
-                required
-                value={formState.student}
-                onChange={(event) => setFormState({ ...formState, student: event.target.value })}
-                className="h-9 w-full rounded-lg border border-border px-3 text-sm"
-              />
-            )}
-          </label>
-          <label className="space-y-2 text-sm">
-            <span className="font-medium">Subject / topic</span>
-            <input
-              required
-              value={formState.subject_topic}
-              onChange={(event) => setFormState({ ...formState, subject_topic: event.target.value })}
-              className="h-9 w-full rounded-lg border border-border px-3 text-sm"
-            />
-          </label>
-          <label className="space-y-2 text-sm">
-            <span className="font-medium">Scheduled date & time</span>
-            <DateTimePickerInput
-              dateValue={toDateInputValue(formState.scheduled_at)}
-              timeValue={toTimeInputValue(formState.scheduled_at)}
-              onDateChange={updateScheduledDate}
-              onTimeChange={updateScheduledTime}
-              placeholder="Select schedule date"
-            />
-          </label>
-          <label className="space-y-2 text-sm md:col-span-2">
-            <span className="font-medium">Status</span>
-            <Select
-              value={formState.status}
-              onValueChange={(nextStatus) =>
-                setFormState({ ...formState, status: nextStatus as Schedule["status"] })
-              }
-            >
-              <SelectTrigger className="h-9 w-full">
-                <SelectValue placeholder="Select status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="upcoming">Upcoming</SelectItem>
-                <SelectItem value="done">Done</SelectItem>
-                <SelectItem value="cancelled">Cancelled</SelectItem>
-                <SelectItem value="rescheduled">Rescheduled</SelectItem>
-              </SelectContent>
-            </Select>
-          </label>
-          <div className="flex flex-col gap-2 md:col-span-2 sm:flex-row">
-            <Button type="submit" disabled={isSaving} className="w-full sm:w-auto">
-              {isSaving ? "Saving..." : editing ? "Update schedule" : "Create schedule"}
-            </Button>
-            <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => setIsFormOpen(false)}>
-              Cancel
-            </Button>
-          </div>
-        </form>
+      {loading ? (
+        <div className="space-y-3">
+          <Skeleton className="h-8 w-48" />
+          <Skeleton className="h-24 w-full rounded-xl" />
+          <Skeleton className="h-24 w-full rounded-xl" />
+        </div>
       ) : null}
 
-      <div className="space-y-3 md:hidden">
-        {schedules.map((schedule) => {
+      <div className="flex flex-col space-y-3 md:hidden">
+        {loading && schedules.length === 0
+          ? Array.from({ length: 2 }).map((_, index) => (
+            <article key={`schedule-mobile-skeleton-${index}`} className="rounded-xl border border-border bg-background p-3 text-sm">
+              <Skeleton className="h-5 w-28" />
+              <Skeleton className="mt-2 h-4 w-full" />
+              <Skeleton className="mt-2 h-4 w-3/4" />
+              <Skeleton className="mt-4 h-9 w-full" />
+            </article>
+          ))
+          : schedules.map((schedule) => {
           const statusPresentation = getScheduleStatusPresentation(schedule)
+          const canSubmitAttendance = schedule.can_check_in
           return (
             <article key={schedule.id} className="rounded-xl border border-border bg-background p-3 text-sm">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="font-semibold">Schedule #{schedule.id}</p>
-                  <p className="text-xs text-muted-foreground">{formatDateTime(schedule.scheduled_at)}</p>
+                  <p className="font-semibold">Schedule</p>
+                  <p className="text-sm text-muted-foreground">
+                    {formatDateTimeRange(schedule.start_datetime, schedule.end_datetime)}
+                  </p>
                 </div>
                 <Badge variant="outline" className={statusPresentation.className}>
                   {statusPresentation.label}
@@ -844,8 +919,17 @@ export function SchedulesSection({
               <p className="mt-2 text-muted-foreground">Tutor: {displayTutorName(schedule)}</p>
               <p className="text-muted-foreground">Student: {displayStudentName(schedule)}</p>
               <p className="text-muted-foreground">Topic: {schedule.subject_topic}</p>
+              <p className="text-muted-foreground">Description: {schedule.description || "-"}</p>
 
               <div className="mt-3 grid gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => openDetailDialog(schedule, "calendar")}
+                  className="w-full"
+                >
+                  See details
+                </Button>
                 {schedule.check_in_detail ? (
                   <Button
                     size="sm"
@@ -856,9 +940,14 @@ export function SchedulesSection({
                     View check in details
                   </Button>
                 ) : canManage ? (
-                  <p className="text-xs text-muted-foreground">Check in: Not yet</p>
+                  <p className="text-sm text-muted-foreground">Check in: Not yet</p>
                 ) : (
-                  <Button size="sm" onClick={() => void openCaptureDialog("check-in", schedule)} className="w-full">
+                  <Button
+                    size="sm"
+                    onClick={() => void openCaptureDialog("check-in", schedule)}
+                    className="w-full disabled:border-border disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100"
+                    disabled={!canSubmitAttendance}
+                  >
                     Check in
                   </Button>
                 )}
@@ -873,13 +962,18 @@ export function SchedulesSection({
                     View check out details
                   </Button>
                 ) : canManage ? (
-                  <p className="text-xs text-muted-foreground">Check out: Not yet</p>
+                  <p className="text-sm text-muted-foreground">Check out: Not yet</p>
                 ) : schedule.check_in_id ? (
-                  <Button size="sm" onClick={() => void openCaptureDialog("check-out", schedule)} className="w-full">
+                  <Button
+                    size="sm"
+                    onClick={() => void openCaptureDialog("check-out", schedule)}
+                    className="w-full disabled:border-border disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100"
+                    disabled={!canSubmitAttendance}
+                  >
                     Check out
                   </Button>
                 ) : (
-                  <p className="text-xs text-muted-foreground">Check out: Check in first</p>
+                  <p className="text-sm text-muted-foreground">Check out: Check in first</p>
                 )}
 
                 {canManage ? (
@@ -896,6 +990,10 @@ export function SchedulesSection({
                       Delete
                     </Button>
                   </div>
+                ) : schedule.status === "upcoming" ? (
+                  <Button size="sm" variant="outline" className="w-full" onClick={() => openTutorReschedule(schedule)}>
+                    Reschedule
+                  </Button>
                 ) : null}
               </div>
             </article>
@@ -912,25 +1010,32 @@ export function SchedulesSection({
         <table className="min-w-full table-fixed text-sm">
           <thead className="bg-muted/70 text-left">
             <tr>
-              <th className="w-16 px-3 py-2">ID</th>
-              <th className="w-36 px-3 py-2">Tutor</th>
-              <th className="w-36 px-3 py-2">Student</th>
-              <th className="w-32 px-3 py-2">Topic</th>
-              <th className="w-40 px-3 py-2">Datetime</th>
+              {!canManage ? <th className="w-44 px-3 py-2">Student</th> : null}
+              {canManage ? <th className="w-40 px-3 py-2">Tutor</th> : null}
+              {canManage ? <th className="w-40 px-3 py-2">Student</th> : null}
+              <th className="w-104 px-3 py-2">Time range</th>
               <th className="w-28 px-3 py-2">Status</th>
-              <th className="w-24 px-3 py-2">Check In</th>
-              <th className="w-24 px-3 py-2">Check Out</th>
-              {canManage ? <th className="w-28 px-3 py-2">Actions</th> : null}
+              {!canManage ? <th className="w-28 px-3 py-2">Check In</th> : null}
+              {!canManage ? <th className="w-28 px-3 py-2">Check Out</th> : null}
+              <th className={canManage ? "w-64 px-3 py-2" : "w-36 px-3 py-2"}>Actions</th>
             </tr>
           </thead>
           <tbody>
+            {loading && schedules.length === 0
+              ? Array.from({ length: 5 }).map((_, index) => (
+                <tr key={`schedule-table-skeleton-${index}`} className="border-t border-border">
+                  <td className="px-3 py-2" colSpan={canManage ? 6 : 8}>
+                    <Skeleton className="h-8 w-full" />
+                  </td>
+                </tr>
+              ))
+              : null}
             {schedules.map((schedule) => (
               <tr key={schedule.id} className="border-t border-border">
-                <td className="px-3 py-2">{schedule.id}</td>
-                <td className="px-3 py-2">{displayTutorName(schedule)}</td>
-                <td className="px-3 py-2">{displayStudentName(schedule)}</td>
-                <td className="px-3 py-2">{schedule.subject_topic}</td>
-                <td className="px-3 py-2">{formatDateTime(schedule.scheduled_at)}</td>
+                {!canManage ? <td className="px-3 py-2">{displayStudentName(schedule)}</td> : null}
+                {canManage ? <td className="px-3 py-2">{displayTutorName(schedule)}</td> : null}
+                {canManage ? <td className="px-3 py-2">{displayStudentName(schedule)}</td> : null}
+                <td className="px-3 py-2">{formatDateTimeRange(schedule.start_datetime, schedule.end_datetime)}</td>
                 <td className="px-3 py-2">
                   <Badge
                     variant="outline"
@@ -939,45 +1044,58 @@ export function SchedulesSection({
                     {getScheduleStatusPresentation(schedule).label}
                   </Badge>
                 </td>
-                <td className="px-3 py-2">
-                  {schedule.check_in_detail ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => openDetailDialog(schedule, "check-in")}
-                    >
-                      View details
-                    </Button>
-                  ) : canManage ? (
-                    "Not yet"
-                  ) : (
-                    <Button size="sm" onClick={() => void openCaptureDialog("check-in", schedule)}>
-                      Check in
-                    </Button>
-                  )}
-                </td>
-                <td className="px-3 py-2">
-                  {schedule.check_out_detail ? (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => openDetailDialog(schedule, "check-out")}
-                    >
-                      View details
-                    </Button>
-                  ) : canManage ? (
-                    "Not yet"
-                  ) : schedule.check_in_id ? (
-                    <Button size="sm" onClick={() => void openCaptureDialog("check-out", schedule)}>
-                      Check out
-                    </Button>
-                  ) : (
-                    "Check in first"
-                  )}
-                </td>
+                {!canManage ? (
+                  <td className="px-3 py-2">
+                    {schedule.check_in_detail ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openDetailDialog(schedule, "check-in")}
+                      >
+                        View details
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        onClick={() => void openCaptureDialog("check-in", schedule)}
+                        className="disabled:border-border disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100"
+                        disabled={!schedule.can_check_in}
+                      >
+                        Check in
+                      </Button>
+                    )}
+                  </td>
+                ) : null}
+                {!canManage ? (
+                  <td className="px-3 py-2">
+                    {schedule.check_out_detail ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openDetailDialog(schedule, "check-out")}
+                      >
+                        View details
+                      </Button>
+                    ) : schedule.check_in_id ? (
+                      <Button
+                        size="sm"
+                        onClick={() => void openCaptureDialog("check-out", schedule)}
+                        className="disabled:border-border disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100"
+                        disabled={!schedule.can_check_in}
+                      >
+                        Check out
+                      </Button>
+                    ) : (
+                      "Check in first"
+                    )}
+                  </td>
+                ) : null}
                 {canManage ? (
                   <td className="px-3 py-2">
                     <div className="flex gap-2">
+                      <Button size="sm" variant="outline" onClick={() => openDetailDialog(schedule, "calendar")}>
+                        Details
+                      </Button>
                       <Button size="sm" variant="outline" onClick={() => openEdit(schedule)}>
                         Edit
                       </Button>
@@ -986,12 +1104,25 @@ export function SchedulesSection({
                       </Button>
                     </div>
                   </td>
-                ) : null}
+                ) : (
+                  <td className="px-3 py-2">
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" onClick={() => openDetailDialog(schedule, "calendar")}>
+                        See details
+                      </Button>
+                      {schedule.status === "upcoming" ? (
+                        <Button size="sm" variant="outline" onClick={() => openTutorReschedule(schedule)}>
+                          Reschedule
+                        </Button>
+                      ) : null}
+                    </div>
+                  </td>
+                )}
               </tr>
             ))}
             {schedules.length === 0 && !loading ? (
               <tr>
-                <td className="px-3 py-5 text-center text-muted-foreground" colSpan={canManage ? 9 : 8}>
+                <td className="px-3 py-5 text-center text-muted-foreground" colSpan={canManage ? 6 : 8}>
                   No schedules found.
                 </td>
               </tr>
@@ -1000,54 +1131,368 @@ export function SchedulesSection({
         </table>
       </div>
 
+      {!canManage && isTutorRequestOpen ? (
+        <Dialog open onOpenChange={(open) => (!open ? setIsTutorRequestOpen(false) : null)}>
+          <DialogContent className="max-h-[90svh] w-[95vw] max-w-2xl overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Request schedule</DialogTitle>
+              <DialogDescription>
+                Request a new schedule. It will stay pending until approved by admin.
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={submitTutorScheduleRequest} className="grid gap-3">
+              <label className="flex flex-col space-y-2 text-sm">
+                <span className="font-medium">
+                  Student <span className="text-destructive">*</span>
+                </span>
+                <StudentCombobox
+                  students={students}
+                  value={tutorRequestForm.student}
+                  onChange={(nextStudentId) => setTutorRequestForm({ ...tutorRequestForm, student: nextStudentId })}
+                  placeholder="Select student"
+                />
+              </label>
+
+              <label className="flex flex-col space-y-2 text-sm">
+                <span className="font-medium">
+                  Subject / topic <span className="text-destructive">*</span>
+                </span>
+                <Input
+                  required
+                  value={tutorRequestForm.subject_topic}
+                  onChange={(event) => setTutorRequestForm({ ...tutorRequestForm, subject_topic: event.target.value })}
+                  className="h-9"
+                />
+              </label>
+
+              <label className="flex flex-col space-y-2 text-sm">
+                <span className="font-medium">Description</span>
+                <textarea
+                  value={tutorRequestForm.description}
+                  onChange={(event) => setTutorRequestForm({ ...tutorRequestForm, description: event.target.value })}
+                  className="min-h-20 w-full rounded-lg border border-border px-3 py-2 text-sm"
+                />
+              </label>
+
+              <label className="flex flex-col space-y-2 text-sm">
+                <span className="font-medium">
+                  Schedule date and time <span className="text-destructive">*</span>
+                </span>
+                <SingleDateTimeRangePickerInput
+                  dateValue={toDateInputValue(tutorRequestForm.start_datetime) || toDateInputValue(tutorRequestForm.end_datetime)}
+                  startTimeValue={toTimeInputValue(tutorRequestForm.start_datetime)}
+                  endTimeValue={toTimeInputValue(tutorRequestForm.end_datetime)}
+                  onDateChange={(nextDate) => {
+                    setTutorRequestForm((previousForm) => {
+                      const startTimePart = toTimeInputValue(previousForm.start_datetime) || DEFAULT_START_TIME
+                      const endTimePart = toTimeInputValue(previousForm.end_datetime) || getDefaultEndTime(startTimePart)
+
+                      return {
+                        ...previousForm,
+                        start_datetime: nextDate ? toScheduledAtIso(nextDate, startTimePart) : "",
+                        end_datetime: nextDate ? toScheduledAtIso(nextDate, endTimePart) : "",
+                      }
+                    })
+                  }}
+                  onStartTimeChange={(nextTime) => {
+                    setTutorRequestForm((previousForm) => {
+                      const datePart = toDateInputValue(previousForm.start_datetime) || toDateInputValue(previousForm.end_datetime)
+                      const normalizedEndTime = nextTime ? getDefaultEndTime(nextTime) : ""
+                      return {
+                        ...previousForm,
+                        start_datetime: datePart && nextTime ? toScheduledAtIso(datePart, nextTime) : "",
+                        end_datetime: datePart && normalizedEndTime ? toScheduledAtIso(datePart, normalizedEndTime) : "",
+                      }
+                    })
+                  }}
+                  onEndTimeChange={(nextTime) => {
+                    setTutorRequestForm((previousForm) => {
+                      const datePart = toDateInputValue(previousForm.end_datetime) || toDateInputValue(previousForm.start_datetime)
+                      return {
+                        ...previousForm,
+                        end_datetime: datePart && nextTime ? toScheduledAtIso(datePart, nextTime) : "",
+                      }
+                    })
+                  }}
+                  placeholder="Select schedule date"
+                />
+              </label>
+
+              <DialogFooter>
+                <Button type="submit" disabled={isSubmittingTutorRequest}>
+                  {isSubmittingTutorRequest ? "Submitting..." : "Submit request"}
+                </Button>
+                <Button type="button" variant="outline" onClick={() => setIsTutorRequestOpen(false)}>
+                  Cancel
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      ) : null}
+
+      {canManage && isFormOpen ? (
+        <Dialog open onOpenChange={(open) => (!open ? closeScheduleForm() : null)}>
+          <DialogContent className="max-h-[90svh] w-[95vw] max-w-2xl overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>{editing ? "Edit schedule" : "Create schedule"}</DialogTitle>
+              <DialogDescription>
+                Fill in schedule details and save changes.
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={saveSchedule} className="flex flex-col space-y-4">
+              <div className="grid gap-3">
+                <label className="flex flex-col space-y-2 text-sm">
+                  <span className="font-medium">
+                    Tutor <span className="text-destructive">*</span>
+                  </span>
+                  {tutorId ? (
+                    <Input disabled value={formState.tutor} className="h-9 w-full bg-muted" />
+                  ) : (
+                    <TutorCombobox
+                      tutors={tutors}
+                      value={formState.tutor}
+                      onChange={(nextTutorId) => setFormState({ ...formState, tutor: nextTutorId })}
+                      placeholder="Select tutor"
+                    />
+                  )}
+                </label>
+                <label className="flex flex-col space-y-2 text-sm">
+                  <span className="font-medium">
+                    Student <span className="text-destructive">*</span>
+                  </span>
+                  <StudentCombobox
+                    students={students}
+                    value={formState.student}
+                    onChange={(nextStudentId) => setFormState({ ...formState, student: nextStudentId })}
+                    placeholder="Select student"
+                  />
+                </label>
+                <label className="flex flex-col space-y-2 text-sm">
+                  <span className="font-medium">
+                    Subject / topic <span className="text-destructive">*</span>
+                  </span>
+                  <Input
+                    required
+                    value={formState.subject_topic}
+                    onChange={(event) => setFormState({ ...formState, subject_topic: event.target.value })}
+                    placeholder="Math, Science, etc"
+                    className="h-9"
+                  />
+                </label>
+                <label className="flex flex-col space-y-2 text-sm">
+                  <span className="font-medium">Description</span>
+                  <textarea
+                    value={formState.description}
+                    onChange={(event) => setFormState({ ...formState, description: event.target.value })}
+                    className="min-h-20 w-full rounded-lg border border-border px-3 py-2 text-sm"
+                  />
+                </label>
+                <label className="flex flex-col space-y-2 text-sm">
+                  <span className="font-medium">
+                    Schedule date and time <span className="text-destructive">*</span>
+                  </span>
+                  <SingleDateTimeRangePickerInput
+                    dateValue={toDateInputValue(formState.start_datetime) || toDateInputValue(formState.end_datetime)}
+                    startTimeValue={toTimeInputValue(formState.start_datetime)}
+                    endTimeValue={toTimeInputValue(formState.end_datetime)}
+                    onDateChange={(nextDate) => {
+                      setFormState((previousState) => {
+                        const startTimePart = toTimeInputValue(previousState.start_datetime) || DEFAULT_START_TIME
+                        const endTimePart = toTimeInputValue(previousState.end_datetime) || getDefaultEndTime(startTimePart)
+
+                        return {
+                          ...previousState,
+                          start_datetime: nextDate ? toScheduledAtIso(nextDate, startTimePart) : "",
+                          end_datetime: nextDate ? toScheduledAtIso(nextDate, endTimePart) : "",
+                        }
+                      })
+                    }}
+                    onStartTimeChange={(nextTime) => {
+                      setFormState((previousState) => {
+                        const datePart = toDateInputValue(previousState.start_datetime) || toDateInputValue(previousState.end_datetime)
+                        const normalizedEndTime = nextTime ? getDefaultEndTime(nextTime) : ""
+                        return {
+                          ...previousState,
+                          start_datetime: datePart && nextTime ? toScheduledAtIso(datePart, nextTime) : "",
+                          end_datetime: datePart && normalizedEndTime ? toScheduledAtIso(datePart, normalizedEndTime) : "",
+                        }
+                      })
+                    }}
+                    onEndTimeChange={(nextTime) => {
+                      setFormState((previousState) => {
+                        const datePart = toDateInputValue(previousState.end_datetime) || toDateInputValue(previousState.start_datetime)
+                        return {
+                          ...previousState,
+                          end_datetime: datePart && nextTime ? toScheduledAtIso(datePart, nextTime) : "",
+                        }
+                      })
+                    }}
+                    placeholder="Select schedule date"
+                  />
+                </label>
+                <label className="flex flex-col space-y-2 text-sm">
+                  <span className="font-medium">
+                    Status <span className="text-destructive">*</span>
+                  </span>
+                  <Select
+                    value={formState.status}
+                    onValueChange={(nextStatus) =>
+                      setFormState({ ...formState, status: nextStatus as Schedule["status"] })
+                    }
+                  >
+                    <SelectTrigger className="h-9 w-full">
+                      <SelectValue placeholder="Select status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="upcoming">Upcoming</SelectItem>
+                      <SelectItem value="done">Done</SelectItem>
+                      <SelectItem value="cancelled">Cancelled</SelectItem>
+                      <SelectItem value="pending">Pending</SelectItem>
+                      <SelectItem value="rejected">Rejected</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </label>
+              </div>
+              <DialogFooter>
+                <Button type="submit" disabled={isSaving}>
+                  {isSaving ? "Saving..." : editing ? "Update schedule" : "Create schedule"}
+                </Button>
+                <Button type="button" variant="outline" onClick={closeScheduleForm}>
+                  Cancel
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      ) : null}
+
+      {!canManage && rescheduleTarget ? (
+        <Dialog open onOpenChange={(open) => (!open ? closeTutorReschedule() : null)}>
+          <DialogContent className="max-h-[90svh] w-[95vw] max-w-xl overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Reschedule</DialogTitle>
+              <DialogDescription>
+                Only the schedule date and time can be changed. This creates a pending request for admin approval.
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={submitTutorReschedule} className="grid gap-3">
+              <label className="flex flex-col space-y-2 text-sm">
+                <span className="font-medium">Current schedule</span>
+                <Input
+                  value={formatDateTimeRange(rescheduleTarget.start_datetime, rescheduleTarget.end_datetime)}
+                  disabled
+                  className="h-9 bg-muted"
+                />
+              </label>
+              <label className="flex flex-col space-y-2 text-sm">
+                <span className="font-medium">
+                  New schedule date and time <span className="text-destructive">*</span>
+                </span>
+                <SingleDateTimeRangePickerInput
+                  dateValue={toDateInputValue(rescheduleStartDatetime) || toDateInputValue(rescheduleEndDatetime)}
+                  startTimeValue={toTimeInputValue(rescheduleStartDatetime)}
+                  endTimeValue={toTimeInputValue(rescheduleEndDatetime)}
+                  onDateChange={(nextDate) => {
+                    const startTimePart = toTimeInputValue(rescheduleStartDatetime) || DEFAULT_START_TIME
+                    const endTimePart = toTimeInputValue(rescheduleEndDatetime) || getDefaultEndTime(startTimePart)
+                    setRescheduleStartDatetime(nextDate ? toScheduledAtIso(nextDate, startTimePart) : "")
+                    setRescheduleEndDatetime(nextDate ? toScheduledAtIso(nextDate, endTimePart) : "")
+                  }}
+                  onStartTimeChange={(nextTime) => {
+                    const datePart = toDateInputValue(rescheduleStartDatetime) || toDateInputValue(rescheduleEndDatetime)
+                    const normalizedEndTime = nextTime ? getDefaultEndTime(nextTime) : ""
+                    setRescheduleStartDatetime(datePart && nextTime ? toScheduledAtIso(datePart, nextTime) : "")
+                    setRescheduleEndDatetime(
+                      datePart && normalizedEndTime ? toScheduledAtIso(datePart, normalizedEndTime) : ""
+                    )
+                  }}
+                  onEndTimeChange={(nextTime) => {
+                    const datePart = toDateInputValue(rescheduleEndDatetime) || toDateInputValue(rescheduleStartDatetime)
+                    setRescheduleEndDatetime(datePart && nextTime ? toScheduledAtIso(datePart, nextTime) : "")
+                  }}
+                  placeholder="Select schedule date"
+                />
+              </label>
+
+              <DialogFooter>
+                <Button type="submit" disabled={isSubmittingReschedule}>
+                  {isSubmittingReschedule ? "Submitting..." : "Submit reschedule"}
+                </Button>
+                <Button type="button" variant="outline" onClick={closeTutorReschedule}>
+                  Cancel
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      ) : null}
+
       {!canManage && activeCaptureSchedule && captureMode ? (
         <Dialog open onOpenChange={(open) => (!open ? closeCaptureDialog() : null)}>
-          <DialogContent className="max-h-[90svh] w-[95vw] max-w-3xl overflow-y-auto">
+          <DialogContent className="max-h-[90svh] w-[95vw] max-w-2xl overflow-y-auto">
             <DialogHeader>
-              <DialogTitle className="capitalize">
-                {captureMode} for schedule #{activeCaptureSchedule.id}
+              <DialogTitle>
+                {getAttendanceModeLabel(captureMode)} for schedule #{activeCaptureSchedule.id}
               </DialogTitle>
               <DialogDescription>
-                Capture a live photo using camera. File upload is disabled for this action.
+                Capture a photo using your camera and submit attendance.
               </DialogDescription>
             </DialogHeader>
 
-            <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-              <span className="rounded-full bg-muted px-2 py-1">Camera: {cameraStatus}</span>
-              {captureMode === "check-in" ? (
-                <span className="rounded-full bg-muted px-2 py-1">Location: {locationStatus}</span>
-              ) : null}
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="space-y-2">
-                <video ref={videoRef} autoPlay muted playsInline className="w-full rounded-lg border border-border bg-black/80" />
-                <canvas ref={canvasRef} className="hidden" />
-                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-                  <Button type="button" variant="outline" onClick={() => void restartCamera()}>
-                    Restart camera
-                  </Button>
-                  <Button type="button" onClick={captureFromCamera}>
-                    Capture photo
-                  </Button>
-                </div>
+            <div className="flex flex-col space-y-5">
+              <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                <span className="rounded-full bg-muted px-2 py-1">Camera: {cameraStatus}</span>
+                {captureMode === "check-in" ? (
+                  <span className="rounded-full bg-muted px-2 py-1">Location: {locationStatus}</span>
+                ) : null}
               </div>
 
-              <div className="space-y-2">
-                {capturedPhotoUrl ? (
-                  <img
-                    src={capturedPhotoUrl}
-                    alt="Captured attendance"
-                    className="w-full rounded-lg border border-border object-cover"
-                  />
-                ) : (
-                  <div className="flex min-h-40 items-center justify-center rounded-lg border border-dashed border-border text-sm text-muted-foreground">
-                    No photo captured yet.
-                  </div>
-                )}
+              <section className="flex flex-col space-y-2">
+                <p className="text-sm font-medium">Photo</p>
+                <div className="overflow-hidden rounded-lg border border-border bg-black/80">
+                  {capturedPhotoUrl ? (
+                    <img
+                      src={capturedPhotoUrl}
+                      alt="Captured attendance"
+                      className="aspect-video w-full object-cover"
+                    />
+                  ) : (
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      muted
+                      playsInline
+                      className="aspect-video w-full object-cover"
+                    />
+                  )}
+                </div>
+                <canvas ref={canvasRef} className="hidden" />
 
-                {captureMode === "check-in" ? (
-                  <div className="space-y-2">
+                <div className="flex flex-wrap gap-2">
+                  {capturedPhotoUrl ? (
+                    <Button type="button" variant="outline" onClick={() => void retakePhoto()}>
+                      Retake photo
+                    </Button>
+                  ) : (
+                    <>
+                      <Button type="button" onClick={captureFromCamera}>
+                        Capture photo
+                      </Button>
+                      <Button type="button" variant="outline" onClick={() => void restartCamera()}>
+                        Restart camera
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </section>
+
+              {captureMode === "check-in" ? (
+                <section className="flex flex-col space-y-4">
+                  <label className="flex flex-col space-y-2 text-sm">
+                    <span className="font-medium">
+                      Location <span className="text-destructive">*</span>
+                    </span>
                     <div className="flex flex-col gap-2 sm:flex-row">
                       <Input
                         required
@@ -1056,26 +1501,40 @@ export function SchedulesSection({
                         placeholder="Latitude, Longitude"
                         className="h-9"
                       />
-                      <Button type="button" variant="outline" onClick={() => void refreshCurrentLocation()}>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-9 shrink-0 px-3"
+                        onClick={() => void refreshCurrentLocation()}
+                      >
                         <MapPin className="size-4" />
                       </Button>
                     </div>
-                  </div>
-                ) : null}
+                  </label>
+                  <label className="flex flex-col space-y-2 text-sm">
+                    <span className="font-medium">Description</span>
+                    <textarea
+                      value={checkInDescription}
+                      onChange={(event) => setCheckInDescription(event.target.value)}
+                      placeholder="Short check in notes"
+                      className="min-h-20 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                    />
+                  </label>
+                </section>
+              ) : null}
 
-                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-                  <Button
-                    type="button"
-                    disabled={isSubmittingCapture}
-                    onClick={() => void submitCapturedAttendance()}
-                  >
-                    {isSubmittingCapture ? "Submitting..." : captureMode === "check-in" ? "Submit check in" : "Submit check out"}
-                  </Button>
-                  <Button type="button" variant="outline" onClick={closeCaptureDialog}>
-                    Cancel
-                  </Button>
-                </div>
-              </div>
+              <DialogFooter className="gap-2">
+                <Button
+                  type="button"
+                  disabled={isSubmittingCapture}
+                  onClick={() => void submitCapturedAttendance()}
+                >
+                  {isSubmittingCapture ? "Submitting..." : `Submit ${getAttendanceModeLabel(captureMode)}`}
+                </Button>
+                <Button type="button" variant="outline" onClick={closeCaptureDialog}>
+                  Cancel
+                </Button>
+              </DialogFooter>
             </div>
           </DialogContent>
         </Dialog>
@@ -1098,19 +1557,22 @@ export function SchedulesSection({
             </DialogHeader>
 
             {detailDialogState.mode === "calendar" ? (
-              <section className="space-y-1 rounded-lg border border-border p-3 text-sm">
+              <section className="space-y-1 text-sm">
                 <p>
                   <span className="font-medium">Schedule time:</span>{" "}
-                  {formatDateTime(detailDialogState.schedule.scheduled_at)}
+                  {formatDateTimeRange(detailDialogState.schedule.start_datetime, detailDialogState.schedule.end_datetime)}
+                </p>
+                <p>
+                  <span className="font-medium">Description:</span> {detailDialogState.schedule.description || "-"}
                 </p>
               </section>
             ) : null}
 
             {detailDialogState.mode !== "check-out" ? (
-              <section className="space-y-2 rounded-lg border border-border p-3">
-                <h4 className="font-semibold">Check in</h4>
+              <section className="space-y-2">
+                <p className="text-sm font-medium text-muted-foreground">Check in</p>
                 {detailDialogState.schedule.check_in_detail ? (
-                  <div className="space-y-2 text-sm">
+                  <div className="flex flex-col space-y-2 text-sm">
                     <p>
                       <span className="font-medium">Time:</span> {formatDateTime(detailDialogState.schedule.check_in_detail.time)}
                     </p>
@@ -1125,6 +1587,10 @@ export function SchedulesSection({
                         Open Google Maps
                       </a>
                     </p>
+                    <p>
+                      <span className="font-medium">Description:</span>{" "}
+                      {detailDialogState.schedule.check_in_detail.description || "-"}
+                    </p>
                     {detailDialogState.schedule.check_in_detail ? (
                       <AttendancePhoto
                         token={token}
@@ -1136,20 +1602,20 @@ export function SchedulesSection({
                         className="max-h-80 w-full rounded-lg border border-border object-contain"
                       />
                     ) : (
-                      <p className="text-muted-foreground">No check-in photo available.</p>
+                      <p className="text-muted-foreground">No check in photo available.</p>
                     )}
                   </div>
                 ) : (
-                  <p className="text-sm text-muted-foreground">Check-in details are not available yet.</p>
+                  <p className="text-sm text-muted-foreground">Check in details are not available yet.</p>
                 )}
               </section>
             ) : null}
 
             {detailDialogState.mode !== "check-in" ? (
-              <section className="space-y-2 rounded-lg border border-border p-3">
-                <h4 className="font-semibold">Check out</h4>
+              <section className="space-y-2">
+                <p className="text-sm font-medium text-muted-foreground">Check out</p>
                 {detailDialogState.schedule.check_out_detail ? (
-                  <div className="space-y-2 text-sm">
+                  <div className="flex flex-col space-y-2 text-sm">
                     <p>
                       <span className="font-medium">Time:</span> {formatDateTime(detailDialogState.schedule.check_out_detail.time)}
                     </p>
@@ -1161,11 +1627,11 @@ export function SchedulesSection({
                         className="max-h-80 w-full rounded-lg border border-border object-contain"
                       />
                     ) : (
-                      <p className="text-muted-foreground">No check-out photo available.</p>
+                      <p className="text-muted-foreground">No check out photo available.</p>
                     )}
                   </div>
                 ) : (
-                  <p className="text-sm text-muted-foreground">Check-out details are not available yet.</p>
+                  <p className="text-sm text-muted-foreground">Check out details are not available yet.</p>
                 )}
               </section>
             ) : null}
@@ -1185,35 +1651,37 @@ export function SchedulesSection({
           setPage(1)
         }}
       />
-      <CalendarBoard
-        title="Schedules Calendar"
-        mode={calendarMode}
-        cursorDate={calendarCursorDate}
-        items={calendarItems}
-        onModeChange={(nextMode) => {
-          setCalendarMode(nextMode)
-          setCalendarCursorDate(getCurrentWibDate())
-        }}
-        onMove={(direction) => {
-          setCalendarCursorDate((previousDate) => {
-            const nextDate = new Date(previousDate)
-            if (calendarMode === "week") {
-              nextDate.setDate(nextDate.getDate() + (direction === "next" ? 7 : -7))
-              return nextDate
-            }
+      <div className="hidden xl:block">
+        <CalendarBoard
+          title="Schedules Calendar"
+          mode={calendarMode}
+          cursorDate={calendarCursorDate}
+          items={calendarItems}
+          onModeChange={(nextMode) => {
+            setCalendarMode(nextMode)
+            setCalendarCursorDate(getCurrentWibDate())
+          }}
+          onMove={(direction) => {
+            setCalendarCursorDate((previousDate) => {
+              const nextDate = new Date(previousDate)
+              if (calendarMode === "week") {
+                nextDate.setDate(nextDate.getDate() + (direction === "next" ? 7 : -7))
+                return nextDate
+              }
 
-            nextDate.setMonth(nextDate.getMonth() + (direction === "next" ? 1 : -1), 1)
-            return nextDate
-          })
-        }}
-        onToday={() => setCalendarCursorDate(getCurrentWibDate())}
-        onItemClick={(item) => {
-          if (!item.schedule) {
-            return
-          }
-          openDetailDialog(item.schedule, "calendar")
-        }}
-      />
+              nextDate.setMonth(nextDate.getMonth() + (direction === "next" ? 1 : -1), 1)
+              return nextDate
+            })
+          }}
+          onToday={() => setCalendarCursorDate(getCurrentWibDate())}
+          onItemClick={(item) => {
+            if (!item.schedule) {
+              return
+            }
+            openDetailDialog(item.schedule, "calendar")
+          }}
+        />
+      </div>
     </section>
   )
 }

@@ -133,6 +133,32 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  h1 {
+    @apply text-3xl leading-tight font-bold tracking-tight md:text-4xl;
+  }
+
+  h2 {
+    @apply text-2xl leading-tight font-bold tracking-tight md:text-3xl;
+  }
+
+  h3 {
+    @apply text-xl leading-tight font-semibold tracking-tight md:text-2xl;
+  }
+
+  h4 {
+    @apply text-lg leading-snug font-semibold md:text-xl;
+  }
+
+  h5 {
+    @apply text-base leading-snug font-semibold md:text-lg;
+  }
+}
+
+@layer components {
+  .type-eyebrow {
+    @apply text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase;
+  }
 }
 
 /* Hide the native time picker icon to keep the schedule form input clean. */

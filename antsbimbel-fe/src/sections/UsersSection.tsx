@@ -5,7 +5,16 @@ import { toast } from "sonner"
 import { Pagination } from "@/components/schedules"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { Skeleton } from "@/components/ui/skeleton"
 import { type ApiUser, parseApiError, usersApi } from "@/lib/api"
 import { notifySubmitError } from "@/lib/helpers/notifications"
 
@@ -152,11 +161,11 @@ export function UsersSection({ token }: { token: string }) {
   }
 
   return (
-    <section className="space-y-4 rounded-2xl border border-border bg-card p-4 shadow-sm">
+    <section className="flex flex-col space-y-4 rounded-2xl border border-border bg-card p-4 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="text-lg font-semibold">Users</h3>
-        <Button size="sm" onClick={() => setIsCreateOpen((open) => !open)}>
-          {isCreateOpen ? "Close" : "Create tutor"}
+        <h3>Users</h3>
+        <Button size="sm" onClick={() => setIsCreateOpen(true)}>
+          Create tutor
         </Button>
       </div>
 
@@ -166,111 +175,34 @@ export function UsersSection({ token }: { token: string }) {
           setSearchQuery(event.target.value)
           setPage(1)
         }}
-        placeholder="Search by ID or name"
+        placeholder="Search by username, name, or email"
         className="h-9 w-full"
       />
 
-      {isCreateOpen ? (
-        <form onSubmit={createUser} className="grid gap-3 rounded-xl border border-border bg-background p-3 md:grid-cols-3">
-          <input
-            required
-            value={createForm.username}
-            onChange={(event) => setCreateForm({ ...createForm, username: event.target.value })}
-            placeholder="Username"
-            className="h-9 rounded-lg border border-border px-3 text-sm"
-          />
-          <input
-            required
-            value={createForm.first_name}
-            onChange={(event) => setCreateForm({ ...createForm, first_name: event.target.value })}
-            placeholder="First name"
-            className="h-9 rounded-lg border border-border px-3 text-sm"
-          />
-          <input
-            required
-            value={createForm.last_name}
-            onChange={(event) => setCreateForm({ ...createForm, last_name: event.target.value })}
-            placeholder="Last name"
-            className="h-9 rounded-lg border border-border px-3 text-sm"
-          />
-          <input
-            required
-            type="email"
-            value={createForm.email}
-            onChange={(event) => setCreateForm({ ...createForm, email: event.target.value })}
-            placeholder="Email"
-            className="h-9 rounded-lg border border-border px-3 text-sm"
-          />
-          <label className="col-span-full flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={createForm.is_active}
-              onChange={(event) => setCreateForm({ ...createForm, is_active: event.target.checked })}
-            />
-            Active user
-          </label>
-          <Button className="md:col-span-1" disabled={creating} type="submit">
-            {creating ? "Creating..." : "Save new user"}
-          </Button>
-        </form>
+      {loading ? (
+        <div className="space-y-3">
+          <Skeleton className="h-8 w-32" />
+          <Skeleton className="h-20 w-full rounded-xl" />
+          <Skeleton className="h-20 w-full rounded-xl" />
+        </div>
       ) : null}
 
-      {editingUserId ? (
-        <form onSubmit={updateUser} className="grid gap-3 rounded-xl border border-border bg-background p-3 md:grid-cols-3">
-          <Input
-            required
-            value={editForm.username}
-            onChange={(event) => setEditForm({ ...editForm, username: event.target.value })}
-            placeholder="Username"
-            className="h-9"
-          />
-          <Input
-            value={editForm.first_name}
-            onChange={(event) => setEditForm({ ...editForm, first_name: event.target.value })}
-            placeholder="First name"
-            className="h-9"
-          />
-          <Input
-            value={editForm.last_name}
-            onChange={(event) => setEditForm({ ...editForm, last_name: event.target.value })}
-            placeholder="Last name"
-            className="h-9"
-          />
-          <Input
-            type="email"
-            value={editForm.email}
-            onChange={(event) => setEditForm({ ...editForm, email: event.target.value })}
-            placeholder="Email"
-            className="h-9"
-          />
-          <label className="col-span-full flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={editForm.is_active}
-              onChange={(event) => setEditForm({ ...editForm, is_active: event.target.checked })}
-            />
-            Active user
-          </label>
-          <div className="col-span-full flex gap-2">
-            <Button disabled={isEditing} type="submit">
-              {isEditing ? "Saving..." : "Save changes"}
-            </Button>
-            <Button type="button" variant="outline" onClick={cancelEditUser}>
-              Cancel
-            </Button>
-          </div>
-        </form>
-      ) : null}
-
-      {loading ? <p className="text-sm text-muted-foreground">Loading users...</p> : null}
-
-      <div className="space-y-3 md:hidden">
+      <div className="flex flex-col space-y-3 md:hidden">
+        {loading && users.length === 0
+          ? Array.from({ length: 2 }).map((_, index) => (
+            <article key={`user-mobile-skeleton-${index}`} className="rounded-xl border border-border bg-background p-3 text-sm">
+              <Skeleton className="h-5 w-28" />
+              <Skeleton className="mt-2 h-4 w-full" />
+              <Skeleton className="mt-2 h-4 w-2/3" />
+              <Skeleton className="mt-3 h-9 w-full" />
+            </article>
+          ))
+          : null}
         {users.map((user) => (
           <article key={user.id} className="rounded-xl border border-border bg-background p-3 text-sm">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="font-semibold">{user.username}</p>
-                <p className="text-xs text-muted-foreground">#{user.id}</p>
               </div>
               <Badge variant="outline" className="capitalize">
                 {user.role}
@@ -302,26 +234,29 @@ export function UsersSection({ token }: { token: string }) {
         <table className="min-w-full table-fixed text-sm">
           <thead className="bg-muted/70 text-left">
             <tr>
-              <th className="w-16 px-3 py-2">ID</th>
+              <th className="w-56 px-3 py-2">Name</th>
               <th className="w-40 px-3 py-2">Username</th>
-              <th className="w-44 px-3 py-2">Name</th>
-              <th className="w-28 px-3 py-2">Role</th>
               <th className="px-3 py-2">Email</th>
-              <th className="w-20 px-3 py-2">Active</th>
-              <th className="w-52 px-3 py-2">Actions</th>
+              <th className="w-48 px-3 py-2">Actions</th>
             </tr>
           </thead>
           <tbody>
+            {loading && users.length === 0
+              ? Array.from({ length: 5 }).map((_, index) => (
+                <tr key={`user-table-skeleton-${index}`} className="border-t border-border">
+                  <td className="px-3 py-2" colSpan={4}>
+                    <Skeleton className="h-8 w-full" />
+                  </td>
+                </tr>
+              ))
+              : null}
             {users.map((user) => (
               <tr key={user.id} className="border-t border-border">
-                <td className="px-3 py-2">{user.id}</td>
-                <td className="px-3 py-2">{user.username}</td>
                 <td className="px-3 py-2">
                   {user.first_name} {user.last_name}
                 </td>
-                <td className="px-3 py-2 capitalize">{user.role}</td>
+                <td className="px-3 py-2">{user.username}</td>
                 <td className="px-3 py-2">{user.email || "-"}</td>
-                <td className="px-3 py-2">{user.is_active ? "Yes" : "No"}</td>
                 <td className="px-3 py-2">
                   <div className="flex gap-2">
                     <Button size="sm" variant="outline" onClick={() => openEditUser(user)}>
@@ -338,7 +273,7 @@ export function UsersSection({ token }: { token: string }) {
             ))}
             {users.length === 0 && !loading ? (
               <tr>
-                <td className="px-3 py-5 text-center text-muted-foreground" colSpan={7}>
+                <td className="px-3 py-5 text-center text-muted-foreground" colSpan={4}>
                   No users found.
                 </td>
               </tr>
@@ -357,6 +292,157 @@ export function UsersSection({ token }: { token: string }) {
           setPage(1)
         }}
       />
+
+      <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+        <DialogContent className="max-h-[90svh] w-[95vw] max-w-2xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Create tutor</DialogTitle>
+            <DialogDescription>
+              Fill in the tutor account details below.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={createUser} className="flex flex-col space-y-4">
+            <div className="grid gap-3">
+              <label className="flex flex-col space-y-2 text-sm">
+                <span className="font-medium">
+                  Username <span className="text-destructive">*</span>
+                </span>
+                <Input
+                  required
+                  value={createForm.username}
+                  onChange={(event) => setCreateForm({ ...createForm, username: event.target.value })}
+                  placeholder="username"
+                  className="h-9"
+                />
+              </label>
+              <label className="flex flex-col space-y-2 text-sm">
+                <span className="font-medium">
+                  First name <span className="text-destructive">*</span>
+                </span>
+                <Input
+                  required
+                  value={createForm.first_name}
+                  onChange={(event) => setCreateForm({ ...createForm, first_name: event.target.value })}
+                  placeholder="First name"
+                  className="h-9"
+                />
+              </label>
+              <label className="flex flex-col space-y-2 text-sm">
+                <span className="font-medium">
+                  Last name <span className="text-destructive">*</span>
+                </span>
+                <Input
+                  required
+                  value={createForm.last_name}
+                  onChange={(event) => setCreateForm({ ...createForm, last_name: event.target.value })}
+                  placeholder="Last name"
+                  className="h-9"
+                />
+              </label>
+              <label className="flex flex-col space-y-2 text-sm">
+                <span className="font-medium">
+                  Email <span className="text-destructive">*</span>
+                </span>
+                <Input
+                  required
+                  type="email"
+                  value={createForm.email}
+                  onChange={(event) => setCreateForm({ ...createForm, email: event.target.value })}
+                  placeholder="name@example.com"
+                  className="h-9"
+                />
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={createForm.is_active}
+                  onChange={(event) => setCreateForm({ ...createForm, is_active: event.target.checked })}
+                />
+                Active user
+              </label>
+            </div>
+            <DialogFooter>
+              <Button disabled={creating} type="submit">
+                {creating ? "Creating..." : "Save new user"}
+              </Button>
+              <Button type="button" variant="outline" onClick={() => setIsCreateOpen(false)}>
+                Cancel
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(editingUserId)} onOpenChange={(open) => (!open ? cancelEditUser() : null)}>
+        <DialogContent className="max-h-[90svh] w-[95vw] max-w-2xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit tutor</DialogTitle>
+            <DialogDescription>
+              Update tutor account details.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={updateUser} className="flex flex-col space-y-4">
+            <div className="grid gap-3">
+              <label className="flex flex-col space-y-2 text-sm">
+                <span className="font-medium">
+                  Username <span className="text-destructive">*</span>
+                </span>
+                <Input
+                  required
+                  value={editForm.username}
+                  onChange={(event) => setEditForm({ ...editForm, username: event.target.value })}
+                  placeholder="username"
+                  className="h-9"
+                />
+              </label>
+              <label className="flex flex-col space-y-2 text-sm">
+                <span className="font-medium">First name</span>
+                <Input
+                  value={editForm.first_name}
+                  onChange={(event) => setEditForm({ ...editForm, first_name: event.target.value })}
+                  placeholder="First name"
+                  className="h-9"
+                />
+              </label>
+              <label className="flex flex-col space-y-2 text-sm">
+                <span className="font-medium">Last name</span>
+                <Input
+                  value={editForm.last_name}
+                  onChange={(event) => setEditForm({ ...editForm, last_name: event.target.value })}
+                  placeholder="Last name"
+                  className="h-9"
+                />
+              </label>
+              <label className="flex flex-col space-y-2 text-sm">
+                <span className="font-medium">Email</span>
+                <Input
+                  type="email"
+                  value={editForm.email}
+                  onChange={(event) => setEditForm({ ...editForm, email: event.target.value })}
+                  placeholder="name@example.com"
+                  className="h-9"
+                />
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={editForm.is_active}
+                  onChange={(event) => setEditForm({ ...editForm, is_active: event.target.checked })}
+                />
+                Active user
+              </label>
+            </div>
+            <DialogFooter>
+              <Button disabled={isEditing} type="submit">
+                {isEditing ? "Saving..." : "Save changes"}
+              </Button>
+              <Button type="button" variant="outline" onClick={cancelEditUser}>
+                Cancel
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </section>
   )
 }

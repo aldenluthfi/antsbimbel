@@ -6,6 +6,7 @@ export type CalendarItem = {
   id: string
   studentName: string
   tutorName: string
+  scheduleHourLabel: string
   statusLabel: string
   statusDotClassName: string
   date: Date

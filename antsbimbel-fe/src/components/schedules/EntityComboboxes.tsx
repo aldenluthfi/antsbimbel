@@ -81,7 +81,11 @@ export function TutorCombobox({
           placeholder="Search by ID or name"
           className="h-9"
         />
-        <div className="mt-2 max-h-56 overflow-auto rounded-md border border-border">
+        <div
+          className="mt-2 max-h-56 overflow-y-auto overscroll-contain rounded-md border border-border"
+          onWheel={(event) => event.stopPropagation()}
+          onTouchMove={(event) => event.stopPropagation()}
+        >
           {filteredTutors.length === 0 ? (
             <p className="px-3 py-2 text-sm text-muted-foreground">No tutor found.</p>
           ) : (
@@ -187,7 +191,11 @@ export function StudentCombobox({
           placeholder="Search by ID or name"
           className="h-9"
         />
-        <div className="mt-2 max-h-56 overflow-auto rounded-md border border-border">
+        <div
+          className="mt-2 max-h-56 overflow-y-auto overscroll-contain rounded-md border border-border"
+          onWheel={(event) => event.stopPropagation()}
+          onTouchMove={(event) => event.stopPropagation()}
+        >
           {filteredStudents.length === 0 ? (
             <p className="px-3 py-2 text-sm text-muted-foreground">No student found.</p>
           ) : (

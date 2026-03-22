@@ -1,4 +1,5 @@
 export type Role = "admin" | "tutor"
+export type StudentLevel = "SD" | "SMP" | "SMA"
 
 export type ApiUser = {
   id: number
@@ -17,8 +18,10 @@ export type Schedule = {
   student: number
   student_name: string | null
   subject_topic: string
-  scheduled_at: string
-  status: "upcoming" | "done" | "cancelled" | "rescheduled"
+  description: string
+  start_datetime: string
+  end_datetime: string
+  status: "upcoming" | "done" | "missed" | "cancelled" | "rescheduled" | "pending" | "rejected"
   check_in_id: number | null
   check_out_id: number | null
   check_in_detail: {
@@ -26,12 +29,14 @@ export type Schedule = {
     time: string
     location: string
     photo: string | null
+    description: string
   } | null
   check_out_detail: {
     id: number
     time: string
     photo: string | null
   } | null
+  can_check_in: boolean
 }
 
 export type Attendance = {
@@ -40,6 +45,7 @@ export type Attendance = {
   student: number
   check_in_time: string
   check_in_location: string
+  description: string
   check_in_photo: string
   check_out_id: number | null
   total_shift_time: string | null
@@ -65,8 +71,12 @@ export type DateFilters = {
 }
 
 export type ScheduleStatusFilter = "" | Schedule["status"]
+export type RequestStatus = "pending" | "resolved"
+export type RequestStatusFilter = "" | RequestStatus
 
-export type ScheduleSortBy = "id" | "scheduled_at" | "status"
+export type ScheduleSortBy = "start_datetime" | "end_datetime" | "status"
+
+export type RequestSortBy = "created_at" | "start_datetime" | "end_datetime" | "status"
 
 export type SortOrder = "asc" | "desc"
 
@@ -90,6 +100,24 @@ export type ScheduleCalendarPaginationQuery = {
   cursorDate: string
 }
 
+export type RequestListQuery = {
+  filters: DateFilters
+  status: RequestStatusFilter
+  sortBy: RequestSortBy
+  sortOrder: SortOrder
+  page: number
+  pageSize: number
+}
+
+export type RequestCalendarPaginationQuery = {
+  filters: DateFilters
+  status: RequestStatusFilter
+  sortBy: RequestSortBy
+  sortOrder: SortOrder
+  mode: CalendarPaginationMode
+  cursorDate: string
+}
+
 export type ScheduleCalendarPaginationResponse = {
   mode: CalendarPaginationMode
   cursor_date: string
@@ -101,10 +129,34 @@ export type ScheduleCalendarPaginationResponse = {
   results: Schedule[]
 }
 
+export type ScheduleRequest = {
+  id: number
+  status: RequestStatus
+  old_schedule: number | null
+  new_schedule: number
+  old_schedule_detail: Schedule | null
+  new_schedule_detail: Schedule
+  created_at: string
+  updated_at: string
+}
+
+export type RequestCalendarPaginationResponse = {
+  mode: CalendarPaginationMode
+  cursor_date: string
+  period_start: string
+  period_end: string
+  previous_cursor_date: string
+  next_cursor_date: string
+  count: number
+  results: ScheduleRequest[]
+}
+
 export type Student = {
   id: number
   first_name: string
   last_name: string
+  email: string
+  level: StudentLevel
   is_active: boolean
   created_at: string
   updated_at: string
@@ -124,8 +176,18 @@ export type SaveSchedulePayload = {
   tutor: number
   student: number
   subject_topic: string
-  scheduled_at: string
+  description: string
+  start_datetime: string
+  end_datetime: string
   status: Schedule["status"]
+}
+
+export type TutorScheduleRequestPayload = {
+  student: number
+  subject_topic: string
+  description: string
+  start_datetime: string
+  end_datetime: string
 }
 
 export type MonthlyScheduleReportResponse = {
@@ -138,6 +200,8 @@ export type MonthlyScheduleReportResponse = {
 export type SaveStudentPayload = {
   first_name: string
   last_name: string
+  email: string
+  level: StudentLevel
   is_active: boolean
 }
 
@@ -229,6 +293,58 @@ function buildScheduleListQuery(query: ScheduleListQuery): string {
 }
 
 function buildScheduleCalendarPaginationQuery(query: ScheduleCalendarPaginationQuery): string {
+  const params = new URLSearchParams()
+  params.set("mode", query.mode)
+  params.set("cursor_date", query.cursorDate)
+  params.set("sort_by", query.sortBy)
+  params.set("sort_order", query.sortOrder)
+
+  if (query.filters.tutorId.trim()) {
+    params.set("tutor", query.filters.tutorId.trim())
+  }
+  if (query.filters.studentId.trim()) {
+    params.set("student", query.filters.studentId.trim())
+  }
+  if (query.filters.startDate) {
+    params.set("start_date", query.filters.startDate)
+  }
+  if (query.filters.endDate) {
+    params.set("end_date", query.filters.endDate)
+  }
+  if (query.status) {
+    params.set("status", query.status)
+  }
+
+  return `?${params.toString()}`
+}
+
+function buildRequestListQuery(query: RequestListQuery): string {
+  const params = new URLSearchParams()
+  params.set("page", String(query.page))
+  params.set("page_size", String(query.pageSize))
+  params.set("sort_by", query.sortBy)
+  params.set("sort_order", query.sortOrder)
+
+  if (query.filters.tutorId.trim()) {
+    params.set("tutor", query.filters.tutorId.trim())
+  }
+  if (query.filters.studentId.trim()) {
+    params.set("student", query.filters.studentId.trim())
+  }
+  if (query.filters.startDate) {
+    params.set("start_date", query.filters.startDate)
+  }
+  if (query.filters.endDate) {
+    params.set("end_date", query.filters.endDate)
+  }
+  if (query.status) {
+    params.set("status", query.status)
+  }
+
+  return `?${params.toString()}`
+}
+
+function buildRequestCalendarPaginationQuery(query: RequestCalendarPaginationQuery): string {
   const params = new URLSearchParams()
   params.set("mode", query.mode)
   params.set("cursor_date", query.cursorDate)
@@ -382,11 +498,21 @@ export const schedulesApi = {
       body: JSON.stringify(payload),
     }, token)
   },
-  update(id: number, payload: SaveSchedulePayload, token: string) {
+  update(id: number, payload: Partial<SaveSchedulePayload>, token: string) {
     return apiRequest<Schedule>(`/schedules/${id}/`, {
       method: "PATCH",
       body: JSON.stringify(payload),
     }, token)
+  },
+  requestSchedule(payload: TutorScheduleRequestPayload, token: string) {
+    return apiRequest<{ request_id: number; schedule: Schedule }>(
+      "/schedules/request/",
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+      token
+    )
   },
   remove(id: number, token: string) {
     return apiRequest<void>(`/schedules/${id}/`, { method: "DELETE" }, token)
@@ -400,6 +526,23 @@ export const schedulesApi = {
       },
       token
     )
+  },
+}
+
+export const requestsApi = {
+  list(queryInput: RequestListQuery, token: string) {
+    const query = buildRequestListQuery(queryInput)
+    return apiRequest<PaginatedResponse<ScheduleRequest>>(`/requests/${query}`, {}, token)
+  },
+  calendarPagination(queryInput: RequestCalendarPaginationQuery, token: string) {
+    const query = buildRequestCalendarPaginationQuery(queryInput)
+    return apiRequest<RequestCalendarPaginationResponse>(`/requests/calendar-pagination/${query}`, {}, token)
+  },
+  approve(id: number, token: string) {
+    return apiRequest<ScheduleRequest>(`/requests/${id}/approve/`, { method: "POST" }, token)
+  },
+  reject(id: number, token: string) {
+    return apiRequest<ScheduleRequest>(`/requests/${id}/reject/`, { method: "POST" }, token)
   },
 }
 

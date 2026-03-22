@@ -30,16 +30,16 @@ export function LoginPage({ onLogin }: { onLogin: (session: Session) => void }) 
   return (
     <main className="relative flex min-h-svh items-center justify-center bg-background p-4 md:p-10">
       <section className="w-full max-w-md rounded-3xl border border-border bg-card p-6 shadow-sm md:p-8">
-        <p className="mb-2 text-xs font-medium tracking-[0.22em] text-muted-foreground uppercase">
+        <p className="type-eyebrow mb-2">
           ANTS BIMBEL
         </p>
-        <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">Staff Login</h1>
+        <h1>Staff Login</h1>
         <p className="mt-2 text-sm text-muted-foreground">
           Sign in using your admin or tutor account to access schedules and attendance.
         </p>
 
-        <form className="mt-6 space-y-4" onSubmit={submit}>
-          <label className="block space-y-2">
+        <form className="mt-6 flex flex-col space-y-4" onSubmit={submit}>
+          <label className="flex flex-col space-y-2">
             <span className="text-sm font-medium">Username</span>
             <input
               required
@@ -49,7 +49,7 @@ export function LoginPage({ onLogin }: { onLogin: (session: Session) => void }) 
             />
           </label>
 
-          <label className="block space-y-2">
+          <label className="flex flex-col space-y-2">
             <span className="text-sm font-medium">Password</span>
             <input
               type="password"

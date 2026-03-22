@@ -1,15 +1,15 @@
 import random
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from scheduling.models import Schedule, Student
+from scheduling.models import Request, Schedule, Student
 
 
 class Command(BaseCommand):
-    help = "Seed dummy tutors, students, and schedules with minimum target counts."
+    help = "Seed dummy tutors, students, schedules, and requests with minimum target counts."
 
     FIRST_NAMES = [
         "Alya",
@@ -57,10 +57,20 @@ class Command(BaseCommand):
         "Siregar",
     ]
 
+    SCHEDULE_DESCRIPTIONS = [
+        "Focus on core concepts and short drills.",
+        "Review previous homework and discuss mistakes.",
+        "Practice mixed questions for upcoming test.",
+        "Strengthen fundamentals before moving to advanced topic.",
+        "Intensive problem-solving session.",
+        "Quick recap followed by timed exercise.",
+    ]
+
     def add_arguments(self, parser):
         parser.add_argument("--tutors", type=int, default=15, help="Minimum number of tutors")
         parser.add_argument("--students", type=int, default=50, help="Minimum number of students")
         parser.add_argument("--schedules", type=int, default=100, help="Minimum number of schedules")
+        parser.add_argument("--requests", type=int, default=30, help="Minimum number of requests")
         parser.add_argument(
             "--password",
             type=str,
@@ -72,6 +82,7 @@ class Command(BaseCommand):
         min_tutors = max(0, options["tutors"])
         min_students = max(0, options["students"])
         min_schedules = max(0, options["schedules"])
+        min_requests = max(0, options["requests"])
         default_password = options["password"]
 
         User = get_user_model()
@@ -99,15 +110,21 @@ class Command(BaseCommand):
         schedules_to_create = max(0, min_schedules - Schedule.objects.count())
         created_schedules = self._create_schedules(schedules_to_create, tutors, students)
 
+        schedules = list(Schedule.objects.select_related("tutor", "student").all())
+        requests_to_create = max(0, min_requests - Request.objects.count())
+        created_requests = self._create_requests(requests_to_create, schedules)
+
         self.stdout.write(self.style.SUCCESS("Dummy data seeding complete."))
         self.stdout.write(f"Tutors created: {created_tutors}")
         self.stdout.write(f"Students created: {created_students}")
         self.stdout.write(f"Schedules created: {created_schedules}")
+        self.stdout.write(f"Requests created: {created_requests}")
         self.stdout.write(
             "Current totals -> "
             f"Tutors: {User.objects.filter(is_staff=False, is_superuser=False).count()}, "
             f"Students: {Student.objects.count()}, "
-            f"Schedules: {Schedule.objects.count()}"
+            f"Schedules: {Schedule.objects.count()}, "
+            f"Requests: {Request.objects.count()}"
         )
 
     def _create_tutors(self, User, count, default_password):
@@ -140,11 +157,23 @@ class Command(BaseCommand):
 
     def _create_students(self, count):
         created = 0
+        current_index = Student.objects.count() + 1
+        level_choices = [choice for choice, _ in Student.Level.choices]
 
         while created < count:
             first_name = random.choice(self.FIRST_NAMES)
             last_name = random.choice(self.LAST_NAMES)
-            Student.objects.create(first_name=first_name, last_name=last_name, is_active=True)
+            base_email = f"{first_name.lower()}.{last_name.lower()}"
+            email = f"{base_email}.{current_index}@student.example.com"
+            current_index += 1
+
+            Student.objects.create(
+                first_name=first_name,
+                last_name=last_name,
+                email=email,
+                level=random.choice(level_choices),
+                is_active=True,
+            )
             created += 1
 
         return created
@@ -153,7 +182,8 @@ class Command(BaseCommand):
         if count <= 0:
             return 0
 
-        now = timezone.now()
+        today = timezone.localdate()
+        current_timezone = timezone.get_current_timezone()
         subjects = [
             "Mathematics",
             "Physics",
@@ -176,13 +206,19 @@ class Command(BaseCommand):
         schedules = []
         for _ in range(count):
             day_offset = random.randint(-(count // 6), (count // 6))
-            hour_offset = random.randint(7, 19)
-            minute_offset = random.choice([0, 15, 30, 45])
-            scheduled_at = (now + timedelta(days=day_offset)).replace(
-                hour=hour_offset,
-                minute=minute_offset,
-                second=0,
-                microsecond=0,
+            target_date = today + timedelta(days=day_offset)
+            start_hour = random.randint(8, 17)
+            start_minute = random.choice([0, 15, 30, 45])
+            duration_hours = random.randint(1, 3)
+
+            start_datetime = timezone.make_aware(
+                datetime.combine(target_date, time(hour=start_hour, minute=start_minute)),
+                current_timezone,
+            )
+            end_hour = min(start_hour + duration_hours, 21)
+            end_datetime = timezone.make_aware(
+                datetime.combine(target_date, time(hour=end_hour, minute=start_minute)),
+                current_timezone,
             )
 
             tutor = random.choice(tutors)
@@ -193,10 +229,64 @@ class Command(BaseCommand):
                     tutor=tutor,
                     student=student,
                     subject_topic=random.choice(subjects),
-                    scheduled_at=scheduled_at,
+                    description=random.choice(self.SCHEDULE_DESCRIPTIONS) if random.random() < 0.75 else "",
+                    start_datetime=start_datetime,
+                    end_datetime=end_datetime,
                     status=random.choice(statuses),
                 )
             )
 
         Schedule.objects.bulk_create(schedules, batch_size=200)
         return len(schedules)
+
+    def _create_requests(self, count, schedules):
+        if count <= 0 or not schedules:
+            return 0
+
+        requests = []
+
+        for _ in range(count):
+            new_schedule = random.choice(schedules)
+            old_schedule = None
+
+            if random.random() < 0.65:
+                related_old_schedules = [
+                    schedule
+                    for schedule in schedules
+                    if schedule.id != new_schedule.id
+                    and schedule.tutor_id == new_schedule.tutor_id
+                    and schedule.student_id == new_schedule.student_id
+                ]
+                if related_old_schedules:
+                    old_schedule = random.choice(related_old_schedules)
+
+            request_status = random.choices(
+                [Request.STATUS_PENDING, Request.STATUS_RESOLVED],
+                weights=[35, 65],
+                k=1,
+            )[0]
+
+            # Keep seeded request/schedule states consistent with approve/reject flows.
+            if request_status == Request.STATUS_PENDING:
+                if new_schedule.status != Schedule.STATUS_PENDING:
+                    new_schedule.status = Schedule.STATUS_PENDING
+                    new_schedule.save(update_fields=["status"])
+            else:
+                new_schedule_target_status = random.choice([
+                    Schedule.STATUS_UPCOMING,
+                    Schedule.STATUS_REJECTED,
+                ])
+                if new_schedule.status != new_schedule_target_status:
+                    new_schedule.status = new_schedule_target_status
+                    new_schedule.save(update_fields=["status"])
+
+            requests.append(
+                Request(
+                    old_schedule=old_schedule,
+                    new_schedule=new_schedule,
+                    status=request_status,
+                )
+            )
+
+        Request.objects.bulk_create(requests, batch_size=200)
+        return len(requests)

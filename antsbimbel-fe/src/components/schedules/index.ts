@@ -1,6 +1,6 @@
 export { AttendancePhoto } from "./AttendancePhoto"
 export { TutorCombobox, StudentCombobox } from "./EntityComboboxes"
-export { DateTimePickerInput, DateRangePickerInput } from "./DatePickers"
+export { DateTimePickerInput, SingleDateTimeRangePickerInput, DateRangePickerInput } from "./DatePickers"
 export { DateFilterPanel } from "./DateFilterPanel"
 export { Pagination } from "./PaginationControls"
 export { CalendarBoard } from "./CalendarBoard"

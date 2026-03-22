@@ -63,7 +63,39 @@ class AttendancePermission(BasePermission):
 class SchedulePermission(BasePermission):
     """
     Admin: full CRUD for schedules.
-    Tutor: read-only and only their own schedule records.
+    Tutor: read and patch only their own schedule records.
+    """
+
+    def has_permission(self, request, view):
+        user = request.user
+
+        if is_admin(user):
+            return True
+
+        if is_tutor(user):
+            if request.method in SAFE_METHODS or request.method == 'PATCH':
+                return True
+
+            return request.method == 'POST' and getattr(view, 'action', None) == 'request_schedule'
+
+        return False
+
+    def has_object_permission(self, request, view, obj):
+        user = request.user
+
+        if is_admin(user):
+            return True
+
+        if is_tutor(user):
+            return obj.tutor.id == user.id and (request.method in SAFE_METHODS or request.method == 'PATCH')
+
+        return False
+
+
+class RequestPermission(BasePermission):
+    """
+    Admin: full access for request management.
+    Tutor: read-only access to their own requests.
     """
 
     def has_permission(self, request, view):
@@ -84,6 +116,6 @@ class SchedulePermission(BasePermission):
             return True
 
         if is_tutor(user):
-            return request.method in SAFE_METHODS and obj.tutor.id == user.id
+            return request.method in SAFE_METHODS and obj.new_schedule.tutor_id == user.id
 
         return False

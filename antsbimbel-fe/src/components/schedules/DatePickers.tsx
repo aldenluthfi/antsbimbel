@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { CalendarDays } from "lucide-react"
+import { CalendarDays, Clock2Icon } from "lucide-react"
 import { format } from "date-fns"
 import { type DateRange } from "react-day-picker"
 
@@ -23,6 +23,9 @@ export function DateTimePickerInput({
   placeholder: string
 }) {
   const selectedDate = dateValue ? new Date(`${dateValue}T00:00:00`) : undefined
+  const previewLabel = selectedDate
+    ? `${format(selectedDate, "MMMM do, yyyy")}${timeValue ? ` ${timeValue} WIB` : ""}`
+    : placeholder
 
   return (
     <Popover>
@@ -36,7 +39,7 @@ export function DateTimePickerInput({
           )}
         >
           <CalendarDays className="mr-2 size-4" />
-          {selectedDate ? format(selectedDate, "PPP") : placeholder}
+          {previewLabel}
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-0" align="start">
@@ -48,8 +51,8 @@ export function DateTimePickerInput({
             autoFocus
           />
         </div>
-        <div className="space-y-1 p-3">
-          <p className="text-xs font-medium text-muted-foreground">Time</p>
+        <div className="flex flex-col space-y-1 p-3">
+          <p className="text-sm font-medium text-muted-foreground">Time</p>
           <Input
             type="time"
             step={60}
@@ -57,6 +60,86 @@ export function DateTimePickerInput({
             onChange={(event) => onTimeChange(event.target.value)}
             className="time-input-no-icon h-9"
           />
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+export function SingleDateTimeRangePickerInput({
+  dateValue,
+  startTimeValue,
+  endTimeValue,
+  onDateChange,
+  onStartTimeChange,
+  onEndTimeChange,
+  placeholder,
+}: {
+  dateValue: string
+  startTimeValue: string
+  endTimeValue: string
+  onDateChange: (next: string) => void
+  onStartTimeChange: (next: string) => void
+  onEndTimeChange: (next: string) => void
+  placeholder: string
+}) {
+  const selectedDate = dateValue ? new Date(`${dateValue}T00:00:00`) : undefined
+  const hasTimeRange = Boolean(startTimeValue && endTimeValue)
+  const previewLabel = selectedDate
+    ? `${format(selectedDate, "MMMM do, yyyy")}${hasTimeRange ? ` ${startTimeValue}-${endTimeValue} WIB` : ""}`
+    : placeholder
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          className={cn(
+            "h-9 w-full justify-start text-left font-normal",
+            !selectedDate && "text-muted-foreground"
+          )}
+        >
+          <CalendarDays className="mr-2 size-4" />
+          {previewLabel}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0" align="start">
+        <div className="border-b border-border">
+          <Calendar
+            mode="single"
+            selected={selectedDate}
+            onSelect={(nextDate) => onDateChange(nextDate ? format(nextDate, "yyyy-MM-dd") : "")}
+            autoFocus
+          />
+        </div>
+        <div className="grid gap-2 p-3 sm:grid-cols-2">
+          <label className="flex flex-col space-y-1 text-sm font-medium text-muted-foreground">
+            <span>Start time</span>
+            <div className="relative">
+              <Input
+                type="time"
+                step={60}
+                value={startTimeValue}
+                onChange={(event) => onStartTimeChange(event.target.value)}
+                className="time-input-no-icon h-9 pr-8"
+              />
+              <Clock2Icon className="pointer-events-none absolute top-1/2 right-2 size-4 -translate-y-1/2 text-muted-foreground" />
+            </div>
+          </label>
+          <label className="flex flex-col space-y-1 text-sm font-medium text-muted-foreground">
+            <span>End time</span>
+            <div className="relative">
+              <Input
+                type="time"
+                step={60}
+                value={endTimeValue}
+                onChange={(event) => onEndTimeChange(event.target.value)}
+                className="time-input-no-icon h-9 pr-8"
+              />
+              <Clock2Icon className="pointer-events-none absolute top-1/2 right-2 size-4 -translate-y-1/2 text-muted-foreground" />
+            </div>
+          </label>
         </div>
       </PopoverContent>
     </Popover>
@@ -103,8 +186,8 @@ export function DateRangePickerInput({
 
   const label = selectedRange?.from
     ? selectedRange.to
-      ? `${format(selectedRange.from, "LLL dd, y")} - ${format(selectedRange.to, "LLL dd, y")}`
-      : format(selectedRange.from, "LLL dd, y")
+      ? `${format(selectedRange.from, "MMMM do, yyyy")} - ${format(selectedRange.to, "MMMM do, yyyy")}`
+      : format(selectedRange.from, "MMMM do, yyyy")
     : "Select date range"
 
   return (
@@ -114,12 +197,12 @@ export function DateRangePickerInput({
           type="button"
           variant="outline"
           className={cn(
-            "h-9 w-full justify-start text-left font-normal",
+            "h-9 w-full justify-start overflow-hidden text-left font-normal",
             !selectedRange?.from && "text-muted-foreground"
           )}
         >
-          <CalendarDays className="mr-2 size-4" />
-          {label}
+          <CalendarDays className="mr-2 size-4 shrink-0" />
+          <span className="min-w-0 truncate">{label}</span>
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-0" align="start">

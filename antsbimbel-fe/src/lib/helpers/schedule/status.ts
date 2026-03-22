@@ -1,7 +1,7 @@
 import { type Schedule } from "@/lib/api"
 
 function isSchedulePast(schedule: Schedule): boolean {
-  const scheduledTime = new Date(schedule.scheduled_at)
+  const scheduledTime = new Date(schedule.start_datetime)
   if (Number.isNaN(scheduledTime.getTime())) {
     return false
   }
@@ -53,6 +53,27 @@ export function getScheduleStatusPresentation(schedule: Schedule): {
     return {
       label: "Done",
       className: "bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-200 hover:text-emerald-900 hover:border-emerald-300",
+    }
+  }
+
+  if (schedule.status === "missed") {
+    return {
+      label: "Missed",
+      className: "bg-red-100 text-red-700 border-red-200 hover:bg-red-200 hover:text-red-900 hover:border-red-300",
+    }
+  }
+
+  if (schedule.status === "pending") {
+    return {
+      label: "Pending",
+      className: "bg-orange-100 text-orange-700 border-orange-200 hover:bg-orange-200 hover:text-orange-900 hover:border-orange-300",
+    }
+  }
+
+  if (schedule.status === "rejected") {
+    return {
+      label: "Rejected",
+      className: "bg-rose-100 text-rose-700 border-rose-200 hover:bg-rose-200 hover:text-rose-900 hover:border-rose-300",
     }
   }
 

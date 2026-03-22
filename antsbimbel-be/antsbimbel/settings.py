@@ -46,7 +46,7 @@ SECRET_KEY = 'django-insecure-sh8dyt283zx11f$c-u7o3xa@p#eqm@4#r+7j95)&(5r5k%n@&7
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = [ 'antsbimbel.vps.webdock.cloud' ]
+ALLOWED_HOSTS = [ 'localhost', '127.0.0.1', 'antsbimbel.vps.webdock.cloud' ]
 
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 USE_X_FORWARDED_HOST = True

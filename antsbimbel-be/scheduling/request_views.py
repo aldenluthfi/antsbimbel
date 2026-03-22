@@ -1,0 +1,238 @@
+from datetime import datetime, timedelta
+
+from django.utils import timezone
+from django.utils.dateparse import parse_date
+from drf_spectacular.utils import extend_schema, inline_serializer
+from rest_framework import serializers, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+
+from .api_parameters import REQUEST_CALENDAR_PAGINATION_QUERY_PARAMETERS, REQUEST_LIST_QUERY_PARAMETERS
+from .models import Request, Schedule
+from .pagination import StandardResultsSetPagination
+from .permissions import RequestPermission, is_admin, is_tutor
+from .request_serializers import RequestSerializer
+
+
+class RequestViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = Request.objects.select_related(
+        'old_schedule',
+        'old_schedule__tutor',
+        'old_schedule__student',
+        'new_schedule',
+        'new_schedule__tutor',
+        'new_schedule__student',
+    ).all().order_by('-created_at')
+    serializer_class = RequestSerializer
+    permission_classes = [IsAuthenticated, RequestPermission]
+    pagination_class = StandardResultsSetPagination
+
+    ALLOWED_REQUEST_STATUS = {
+        Request.STATUS_PENDING,
+        Request.STATUS_RESOLVED,
+    }
+
+    @staticmethod
+    def _local_day_start(day_value):
+        return timezone.make_aware(
+            datetime.combine(day_value, datetime.min.time()),
+            timezone.get_current_timezone(),
+        )
+
+    @classmethod
+    def _local_date_range_kwargs(cls, start_date, end_date):
+        return {
+            'new_schedule__start_datetime__gte': cls._local_day_start(start_date),
+            'new_schedule__start_datetime__lt': cls._local_day_start(end_date + timedelta(days=1)),
+        }
+
+    def _resolve_ordering(self, sort_by, sort_order):
+        ordering_fields = {
+            'created_at': 'created_at',
+            'start_datetime': 'new_schedule__start_datetime',
+            'end_datetime': 'new_schedule__end_datetime',
+            'status': 'status',
+        }
+
+        if sort_by not in ordering_fields:
+            raise ValidationError(
+                {'sort_by': 'Invalid sort field. Allowed values are created_at, start_datetime, end_datetime, status.'}
+            )
+
+        if sort_order not in {'asc', 'desc'}:
+            sort_order = 'desc'
+
+        field_name = ordering_fields[sort_by]
+        return field_name if sort_order == 'asc' else f'-{field_name}'
+
+    @extend_schema(parameters=REQUEST_LIST_QUERY_PARAMETERS)
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        sort_by = request.query_params.get('sort_by', 'created_at').strip().lower()
+        sort_order = request.query_params.get('sort_order', '').strip().lower()
+        queryset = queryset.order_by(self._resolve_ordering(sort_by, sort_order))
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @extend_schema(
+        request=None,
+        parameters=REQUEST_CALENDAR_PAGINATION_QUERY_PARAMETERS,
+        responses={
+            200: inline_serializer(
+                name='RequestCalendarPaginationResponse',
+                fields={
+                    'mode': serializers.CharField(),
+                    'cursor_date': serializers.CharField(),
+                    'period_start': serializers.CharField(),
+                    'period_end': serializers.CharField(),
+                    'previous_cursor_date': serializers.CharField(),
+                    'next_cursor_date': serializers.CharField(),
+                    'count': serializers.IntegerField(),
+                    'results': RequestSerializer(many=True),
+                },
+            ),
+        },
+    )
+    @action(detail=False, methods=['get'], url_path='calendar-pagination')
+    def calendar_pagination(self, request):
+        queryset = self.filter_queryset(self.get_queryset())
+        sort_by = request.query_params.get('sort_by', 'created_at').strip().lower()
+        sort_order = request.query_params.get('sort_order', '').strip().lower()
+        mode = request.query_params.get('mode', 'month').strip().lower()
+        cursor_date_param = request.query_params.get('cursor_date', '').strip()
+
+        if mode not in {'month', 'week'}:
+            raise ValidationError({'mode': 'Invalid calendar mode. Allowed values are month, week.'})
+
+        cursor_date = parse_date(cursor_date_param) if cursor_date_param else timezone.localdate()
+        if not cursor_date:
+            raise ValidationError({'cursor_date': 'Invalid date format. Use YYYY-MM-DD.'})
+
+        if mode == 'month':
+            period_start = cursor_date.replace(day=1)
+            if period_start.month == 12:
+                next_month_start = period_start.replace(year=period_start.year + 1, month=1)
+            else:
+                next_month_start = period_start.replace(month=period_start.month + 1)
+            period_end = next_month_start - timedelta(days=1)
+            previous_cursor_date = period_start - timedelta(days=1)
+            next_cursor_date = next_month_start
+        else:
+            period_start = cursor_date - timedelta(days=cursor_date.weekday())
+            period_end = period_start + timedelta(days=6)
+            previous_cursor_date = period_start - timedelta(days=7)
+            next_cursor_date = period_start + timedelta(days=7)
+
+        period_queryset = queryset.filter(
+            **self._local_date_range_kwargs(period_start, period_end)
+        ).order_by(self._resolve_ordering(sort_by, sort_order))
+
+        serializer = self.get_serializer(period_queryset, many=True)
+        return Response(
+            {
+                'mode': mode,
+                'cursor_date': cursor_date.isoformat(),
+                'period_start': period_start.isoformat(),
+                'period_end': period_end.isoformat(),
+                'previous_cursor_date': previous_cursor_date.isoformat(),
+                'next_cursor_date': next_cursor_date.isoformat(),
+                'count': period_queryset.count(),
+                'results': serializer.data,
+            }
+        )
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        user = self.request.user
+
+        if not is_admin(user) and not is_tutor(user):
+            return queryset.none()
+
+        if is_tutor(user):
+            queryset = queryset.filter(new_schedule__tutor=user)
+
+        tutor = self.request.query_params.get('tutor')
+        student = self.request.query_params.get('student')
+        start_date_param = self.request.query_params.get('start_date')
+        end_date_param = self.request.query_params.get('end_date')
+        status_param = self.request.query_params.get('status')
+
+        if tutor:
+            queryset = queryset.filter(new_schedule__tutor=tutor)
+
+        if student:
+            queryset = queryset.filter(new_schedule__student=student)
+
+        if start_date_param:
+            start_date = parse_date(start_date_param)
+            if not start_date:
+                raise ValidationError({'start_date': 'Invalid date format. Use YYYY-MM-DD or ISO datetime.'})
+            queryset = queryset.filter(new_schedule__start_datetime__gte=self._local_day_start(start_date))
+
+        if end_date_param:
+            end_date = parse_date(end_date_param)
+            if not end_date:
+                raise ValidationError({'end_date': 'Invalid date format. Use YYYY-MM-DD or ISO datetime.'})
+            queryset = queryset.filter(new_schedule__start_datetime__lt=self._local_day_start(end_date + timedelta(days=1)))
+
+        if status_param:
+            status_value = status_param.strip().lower()
+            if status_value not in self.ALLOWED_REQUEST_STATUS:
+                raise ValidationError({'status': 'Invalid status. Allowed values are pending, resolved.'})
+            queryset = queryset.filter(status=status_value)
+
+        return queryset
+
+    @action(detail=True, methods=['post'], url_path='approve')
+    def approve(self, request, pk=None):
+        if not is_admin(request.user):
+            return Response({'detail': 'Only admins can approve requests.'}, status=status.HTTP_403_FORBIDDEN)
+
+        request_obj = self.get_object()
+        new_schedule = request_obj.new_schedule
+
+        if request_obj.status != Request.STATUS_PENDING:
+            raise ValidationError({'detail': 'Only pending requests can be approved.'})
+
+        if new_schedule.status != Schedule.STATUS_PENDING:
+            raise ValidationError({'detail': 'Only pending requests can be approved.'})
+
+        if request_obj.old_schedule and request_obj.old_schedule.status == Schedule.STATUS_PENDING:
+            request_obj.old_schedule.status = Schedule.STATUS_RESCHEDULED
+            request_obj.old_schedule.save(update_fields=['status'])
+
+        new_schedule.status = Schedule.STATUS_UPCOMING
+        new_schedule.save(update_fields=['status'])
+        request_obj.status = Request.STATUS_RESOLVED
+        request_obj.save(update_fields=['status', 'updated_at'])
+
+        return Response(self.get_serializer(request_obj).data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'], url_path='reject')
+    def reject(self, request, pk=None):
+        if not is_admin(request.user):
+            return Response({'detail': 'Only admins can reject requests.'}, status=status.HTTP_403_FORBIDDEN)
+
+        request_obj = self.get_object()
+        new_schedule = request_obj.new_schedule
+
+        if request_obj.status != Request.STATUS_PENDING:
+            raise ValidationError({'detail': 'Only pending requests can be rejected.'})
+
+        if new_schedule.status != Schedule.STATUS_PENDING:
+            raise ValidationError({'detail': 'Only pending requests can be rejected.'})
+
+        new_schedule.status = Schedule.STATUS_REJECTED
+        new_schedule.save(update_fields=['status'])
+        request_obj.status = Request.STATUS_RESOLVED
+        request_obj.save(update_fields=['status', 'updated_at'])
+
+        return Response(self.get_serializer(request_obj).data, status=status.HTTP_200_OK)

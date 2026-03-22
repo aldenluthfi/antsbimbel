@@ -1,11 +1,19 @@
 from django.conf import settings
 from django.db import models
+from django.db.models import F, Q
 from django.utils import timezone
 
 
 class Student(models.Model):
+	class Level(models.TextChoices):
+		SD = 'SD', 'SD'
+		SMP = 'SMP', 'SMP'
+		SMA = 'SMA', 'SMA'
+
 	first_name = models.CharField(max_length=150)
 	last_name = models.CharField(max_length=150, blank=True)
+	email = models.EmailField(blank=True, default='')
+	level = models.CharField(max_length=3, choices=Level.choices, default=Level.SD)
 	is_active = models.BooleanField(default=True)
 	created_at = models.DateTimeField(auto_now_add=True)
 	updated_at = models.DateTimeField(auto_now=True)
@@ -32,6 +40,7 @@ class CheckIn(models.Model):
 	check_in_time = models.DateTimeField(default=timezone.now)
 	check_in_location = models.CharField(max_length=255)
 	check_in_photo = models.URLField(max_length=2048)
+	description = models.TextField(blank=True, default='')
 
 	def __str__(self):
 		return f'CheckIn #{self.pk} - Tutor {self.tutor.id}'
@@ -59,14 +68,20 @@ class CheckOut(models.Model):
 class Schedule(models.Model):
 	STATUS_UPCOMING = 'upcoming'
 	STATUS_DONE = 'done'
+	STATUS_MISSED = 'missed'
 	STATUS_CANCELLED = 'cancelled'
 	STATUS_RESCHEDULED = 'rescheduled'
+	STATUS_PENDING = 'pending'
+	STATUS_REJECTED = 'rejected'
 
 	STATUS_CHOICES = (
 		(STATUS_UPCOMING, 'Upcoming'),
 		(STATUS_DONE, 'Done'),
+		(STATUS_MISSED, 'Missed'),
 		(STATUS_CANCELLED, 'Cancelled'),
 		(STATUS_RESCHEDULED, 'Rescheduled'),
+		(STATUS_PENDING, 'Pending'),
+		(STATUS_REJECTED, 'Rejected'),
 	)
 
 	tutor = models.ForeignKey(
@@ -80,7 +95,9 @@ class Schedule(models.Model):
 		related_name='schedule_records',
 	)
 	subject_topic = models.CharField(max_length=255)
-	scheduled_at = models.DateTimeField()
+	description = models.TextField(blank=True, default='')
+	start_datetime = models.DateTimeField()
+	end_datetime = models.DateTimeField()
 	status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_UPCOMING)
 	check_in = models.OneToOneField(
 		CheckIn,
@@ -90,5 +107,57 @@ class Schedule(models.Model):
 		blank=True,
 	)
 
+	class Meta:
+		constraints = [
+			models.CheckConstraint(
+				check=Q(start_datetime__lt=F('end_datetime')),
+				name='schedule_start_before_end',
+			),
+			models.CheckConstraint(
+				check=Q(start_datetime__date=F('end_datetime__date')),
+				name='schedule_start_end_same_date',
+			),
+		]
+
 	def __str__(self):
 		return f'Schedule #{self.pk} - Tutor {self.tutor.id}'
+
+	@property
+	def can_check_in(self):
+		if self.status not in {self.STATUS_UPCOMING, self.STATUS_PENDING}:
+			return False
+
+		check_in_open_time = self.start_datetime - timezone.timedelta(minutes=15)
+		return timezone.now() >= check_in_open_time
+
+
+class Request(models.Model):
+	STATUS_PENDING = 'pending'
+	STATUS_RESOLVED = 'resolved'
+
+	STATUS_CHOICES = (
+		(STATUS_PENDING, 'Pending'),
+		(STATUS_RESOLVED, 'Resolved'),
+	)
+
+	old_schedule = models.ForeignKey(
+		Schedule,
+		on_delete=models.SET_NULL,
+		related_name='old_schedule_requests',
+		null=True,
+		blank=True,
+	)
+	new_schedule = models.ForeignKey(
+		Schedule,
+		on_delete=models.PROTECT,
+		related_name='new_schedule_requests',
+	)
+	status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING)
+	created_at = models.DateTimeField(auto_now_add=True)
+	updated_at = models.DateTimeField(auto_now=True)
+
+	class Meta:
+		ordering = ('-created_at', 'id')
+
+	def __str__(self):
+		return f'Request #{self.pk} - New schedule {self.new_schedule_id}'
