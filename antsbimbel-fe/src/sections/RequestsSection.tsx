@@ -25,7 +25,6 @@ import {
   displayStudentName,
   displayTutorName,
   formatDateTime,
-  formatDateTimeRange,
   formatTimeRange,
   getCurrentWibDate,
   toWibCalendarDate,
@@ -51,17 +50,25 @@ function getEffectiveRequestSchedule(requestItem: ScheduleRequest) {
   return requestItem.new_schedule_detail ?? requestItem.old_schedule_detail
 }
 
-function getRequestTargetLabel(requestItem: ScheduleRequest): string {
-  const newSchedule = requestItem.new_schedule_detail
-  if (newSchedule) {
-    return formatDateTimeRange(newSchedule.start_datetime, newSchedule.end_datetime)
+function getRequestTypePresentation(requestItem: ScheduleRequest): { label: string; className: string } {
+  if (requestItem.old_schedule && requestItem.new_schedule) {
+    return {
+      label: "Reschedule",
+      className: "bg-amber-100 text-amber-700 border-amber-200 hover:bg-amber-200 hover:text-amber-900 hover:border-amber-300",
+    }
   }
 
-  if (requestItem.extension) {
-    return `Extension request (+${requestItem.extension}h)`
+  if (requestItem.old_schedule && !requestItem.new_schedule) {
+    return {
+      label: "Extension",
+      className: "bg-teal-100 text-teal-700 border-teal-200 hover:bg-teal-200 hover:text-teal-900 hover:border-teal-300",
+    }
   }
 
-  return "-"
+  return {
+    label: "New schedule",
+    className: "bg-sky-100 text-sky-700 border-sky-200 hover:bg-sky-200 hover:text-sky-900 hover:border-sky-300",
+  }
 }
 
 export function RequestsSection({ token }: { token: string }) {
@@ -327,8 +334,8 @@ export function RequestsSection({ token }: { token: string }) {
           : null}
         {requests.map((requestItem) => {
           const schedule = getEffectiveRequestSchedule(requestItem)
-          const oldSchedule = requestItem.old_schedule_detail
           const statusPresentation = getRequestStatusPresentation(requestItem.status)
+          const requestType = getRequestTypePresentation(requestItem)
 
           return (
             <article key={requestItem.id} className="rounded-xl border border-border bg-background p-3 text-sm">
@@ -344,9 +351,8 @@ export function RequestsSection({ token }: { token: string }) {
 
               <p className="mt-2 text-muted-foreground">Tutor: {schedule ? displayTutorName(schedule) : "-"}</p>
               <p className="text-muted-foreground">Student: {schedule ? displayStudentName(schedule) : "-"}</p>
-              <p className="text-muted-foreground">New schedule: {getRequestTargetLabel(requestItem)}</p>
               <p className="text-muted-foreground">
-                Old schedule: {oldSchedule ? formatDateTimeRange(oldSchedule.start_datetime, oldSchedule.end_datetime) : "New schedule request"}
+                Type: <Badge variant="outline" className={requestType.className}>{requestType.label}</Badge>
               </p>
 
               <div className="mt-3">{renderActions(requestItem)}</div>
@@ -359,10 +365,9 @@ export function RequestsSection({ token }: { token: string }) {
         <table className="min-w-full table-fixed text-sm">
           <thead className="bg-muted/70 text-left">
             <tr>
-              <th className="w-40 px-3 py-2">Tutor</th>
-              <th className="w-40 px-3 py-2">Student</th>
-              <th className="w-52 px-3 py-2">Old schedule</th>
-              <th className="w-52 px-3 py-2">New schedule</th>
+              <th className="w-48 px-3 py-2">Tutor</th>
+              <th className="w-48 px-3 py-2">Student</th>
+              <th className="px-3 py-2">Type</th>
               <th className="w-28 px-3 py-2">Status</th>
               <th className="w-64 px-3 py-2">Actions</th>
             </tr>
@@ -381,9 +386,6 @@ export function RequestsSection({ token }: { token: string }) {
                     <Skeleton className="h-4 w-full" />
                   </td>
                   <td className="px-3 py-2">
-                    <Skeleton className="h-4 w-full" />
-                  </td>
-                  <td className="px-3 py-2">
                     <Skeleton className="h-6 w-20 rounded-full" />
                   </td>
                   <td className="px-3 py-2">
@@ -397,15 +399,18 @@ export function RequestsSection({ token }: { token: string }) {
               : null}
             {requests.map((requestItem) => {
               const schedule = getEffectiveRequestSchedule(requestItem)
-              const oldSchedule = requestItem.old_schedule_detail
               const statusPresentation = getRequestStatusPresentation(requestItem.status)
+              const requestType = getRequestTypePresentation(requestItem)
 
               return (
                 <tr key={requestItem.id} className="border-t border-border">
                   <td className="px-3 py-2">{schedule ? displayTutorName(schedule) : "-"}</td>
                   <td className="px-3 py-2">{schedule ? displayStudentName(schedule) : "-"}</td>
-                  <td className="px-3 py-2">{oldSchedule ? formatDateTimeRange(oldSchedule.start_datetime, oldSchedule.end_datetime) : "-"}</td>
-                  <td className="px-3 py-2">{getRequestTargetLabel(requestItem)}</td>
+                  <td className="px-3 py-2">
+                    <Badge variant="outline" className={requestType.className}>
+                      {requestType.label}
+                    </Badge>
+                  </td>
                   <td className="px-3 py-2">
                     <Badge variant="outline" className={statusPresentation.className}>
                       {statusPresentation.label}

@@ -1026,9 +1026,9 @@ export function SchedulesSection({
         <table className="min-w-full table-fixed text-sm">
           <thead className="bg-muted/70 text-left">
             <tr>
-              {!canManage ? <th className="w-44 px-3 py-2">Student</th> : null}
-              {canManage ? <th className="w-40 px-3 py-2">Tutor</th> : null}
-              {canManage ? <th className="w-40 px-3 py-2">Student</th> : null}
+              {!canManage ? <th className="w-48 px-3 py-2">Student</th> : null}
+              {canManage ? <th className="w-48 px-3 py-2">Tutor</th> : null}
+              {canManage ? <th className="w-48 px-3 py-2">Student</th> : null}
               <th className="w-104 px-3 py-2">Time range</th>
               <th className="w-28 px-3 py-2">Status</th>
               {!canManage ? <th className="w-28 px-3 py-2">Check In</th> : null}
