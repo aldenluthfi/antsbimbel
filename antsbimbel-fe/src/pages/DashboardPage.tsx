@@ -83,7 +83,7 @@ export function DashboardPage({
             </p>
           </div>
 
-          <div className="flex w-full gap-2 sm:w-auto">
+          <div className="flex flex-col w-full gap-2 sm:flex-row sm:w-auto">
             {isAdmin ? (
               <>
                 <Button
