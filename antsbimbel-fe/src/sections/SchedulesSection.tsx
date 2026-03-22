@@ -15,6 +15,14 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -24,13 +32,6 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import {
   attendanceApi,
   type ApiUser,
@@ -106,6 +107,13 @@ export function SchedulesSection({
   const [isSubmittingCapture, setIsSubmittingCapture] = useState(false)
   const [capturedPhotoUrl, setCapturedPhotoUrl] = useState<string | null>(null)
   const [reportMonth, setReportMonth] = useState(() => format(new Date(), "yyyy-MM"))
+  const scheduleStatusOptions: Array<{ value: Schedule["status"]; label: string }> = [
+    { value: "upcoming", label: "Upcoming" },
+    { value: "done", label: "Done" },
+    { value: "cancelled", label: "Cancelled" },
+    { value: "pending", label: "Pending" },
+    { value: "rejected", label: "Rejected" },
+  ]
   const reportMonthParts = useMemo(() => {
     const match = reportMonth.match(/^(\d{4})-(\d{2})$/)
     if (!match) {
@@ -122,6 +130,8 @@ export function SchedulesSection({
     const currentYear = new Date().getFullYear()
     return Array.from({ length: 11 }, (_, index) => String(currentYear - 5 + index))
   }, [])
+  const selectedReportMonthLabel =
+    REPORT_MONTH_OPTIONS.find((monthOption) => monthOption.value === reportMonthParts.month)?.label ?? "Select month"
   const [isGeneratingReport, setIsGeneratingReport] = useState(false)
   const [detailDialogState, setDetailDialogState] = useState<{
     schedule: Schedule
@@ -837,43 +847,49 @@ export function SchedulesSection({
               <div className="grid gap-3 md:grid-cols-3 md:items-end">
                 <label className="flex flex-col space-y-2 text-sm">
                   <span className="font-medium">Month</span>
-                  <Select
-                    value={reportMonthParts.month}
-                    onValueChange={(nextMonth) =>
-                      setReportMonth(`${reportMonthParts.year}-${nextMonth}`)
-                    }
-                  >
-                    <SelectTrigger className="h-9 w-full">
-                      <SelectValue placeholder="Select month" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {REPORT_MONTH_OPTIONS.map((monthOption) => (
-                        <SelectItem key={monthOption.value} value={monthOption.value}>
-                          {monthOption.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button type="button" variant="outline" className="h-9 w-full justify-start font-normal">
+                        {selectedReportMonthLabel}
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      <DropdownMenuLabel>Month</DropdownMenuLabel>
+                      <DropdownMenuRadioGroup
+                        value={reportMonthParts.month}
+                        onValueChange={(nextMonth) => setReportMonth(`${reportMonthParts.year}-${nextMonth}`)}
+                      >
+                        {REPORT_MONTH_OPTIONS.map((monthOption) => (
+                          <DropdownMenuRadioItem key={monthOption.value} value={monthOption.value}>
+                            {monthOption.label}
+                          </DropdownMenuRadioItem>
+                        ))}
+                      </DropdownMenuRadioGroup>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </label>
                 <label className="flex flex-col space-y-2 text-sm">
                   <span className="font-medium">Year</span>
-                  <Select
-                    value={reportMonthParts.year}
-                    onValueChange={(nextYear) =>
-                      setReportMonth(`${nextYear}-${reportMonthParts.month}`)
-                    }
-                  >
-                    <SelectTrigger className="h-9 w-full">
-                      <SelectValue placeholder="Select year" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {reportYearOptions.map((yearOption) => (
-                        <SelectItem key={yearOption} value={yearOption}>
-                          {yearOption}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button type="button" variant="outline" className="h-9 w-full justify-start font-normal">
+                        {reportMonthParts.year}
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      <DropdownMenuLabel>Year</DropdownMenuLabel>
+                      <DropdownMenuRadioGroup
+                        value={reportMonthParts.year}
+                        onValueChange={(nextYear) => setReportMonth(`${nextYear}-${reportMonthParts.month}`)}
+                      >
+                        {reportYearOptions.map((yearOption) => (
+                          <DropdownMenuRadioItem key={yearOption} value={yearOption}>
+                            {yearOption}
+                          </DropdownMenuRadioItem>
+                        ))}
+                      </DropdownMenuRadioGroup>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </label>
                 <Button
                   type="button"
@@ -1387,23 +1403,28 @@ export function SchedulesSection({
                   <span className="font-medium">
                     Status <span className="text-destructive">*</span>
                   </span>
-                  <Select
-                    value={formState.status}
-                    onValueChange={(nextStatus) =>
-                      setFormState({ ...formState, status: nextStatus as Schedule["status"] })
-                    }
-                  >
-                    <SelectTrigger className="h-9 w-full">
-                      <SelectValue placeholder="Select status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="upcoming">Upcoming</SelectItem>
-                      <SelectItem value="done">Done</SelectItem>
-                      <SelectItem value="cancelled">Cancelled</SelectItem>
-                      <SelectItem value="pending">Pending</SelectItem>
-                      <SelectItem value="rejected">Rejected</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button type="button" variant="outline" className="h-9 w-full justify-start font-normal">
+                        {scheduleStatusOptions.find((statusOption) => statusOption.value === formState.status)?.label ?? "Select status"}
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
+                      <DropdownMenuLabel>Status</DropdownMenuLabel>
+                      <DropdownMenuRadioGroup
+                        value={formState.status}
+                        onValueChange={(nextStatus) =>
+                          setFormState({ ...formState, status: nextStatus as Schedule["status"] })
+                        }
+                      >
+                        {scheduleStatusOptions.map((statusOption) => (
+                          <DropdownMenuRadioItem key={statusOption.value} value={statusOption.value}>
+                            {statusOption.label}
+                          </DropdownMenuRadioItem>
+                        ))}
+                      </DropdownMenuRadioGroup>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </label>
               </div>
               <DialogFooter>

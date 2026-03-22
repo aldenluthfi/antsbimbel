@@ -2,12 +2,13 @@ import { ChevronLeft, ChevronRight } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 export function Pagination({
   page,
@@ -32,18 +33,23 @@ export function Pagination({
         </p>
         <div className="flex items-center gap-2">
           <span className="text-muted-foreground">Rows</span>
-          <Select value={String(pageSize)} onValueChange={(next) => onPageSizeChange(Number(next))}>
-            <SelectTrigger className="h-8 w-24">
-              <SelectValue placeholder="Rows" />
-            </SelectTrigger>
-            <SelectContent>
-              {pageSizeOptions.map((option) => (
-                <SelectItem key={option} value={String(option)}>
-                  {option}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button type="button" variant="outline" className="h-8 w-24 justify-start font-normal">
+                {pageSize}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuLabel>Rows</DropdownMenuLabel>
+              <DropdownMenuRadioGroup value={String(pageSize)} onValueChange={(next) => onPageSizeChange(Number(next))}>
+                {pageSizeOptions.map((option) => (
+                  <DropdownMenuRadioItem key={option} value={String(option)}>
+                    {option}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
       <div className="flex w-full gap-2 sm:w-auto">

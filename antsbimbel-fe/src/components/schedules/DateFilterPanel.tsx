@@ -7,16 +7,11 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 
 import { DateRangePickerInput } from "./DatePickers"
 import { StudentCombobox, TutorCombobox } from "./EntityComboboxes"
@@ -109,6 +104,9 @@ export function DateFilterPanel({
   const selectedStatusOptions = resolvedStatusOptions.filter((statusOption) => status.includes(statusOption.value))
   const statusBadgeOptions = selectedStatusOptions.slice(0, 2)
   const additionalStatusCount = Math.max(selectedStatusOptions.length - statusBadgeOptions.length, 0)
+  const selectedSortByOption =
+    resolvedSortByOptions.find((sortOption) => sortOption.value === sortBy)?.label ?? "Select sorting"
+  const selectedSortOrderLabel = sortOrder === "asc" ? "Ascending" : "Descending"
 
   const toggleStatus = (statusValue: string) => {
     if (status.includes(statusValue)) {
@@ -213,31 +211,41 @@ export function DateFilterPanel({
         <div className="grid gap-3 md:grid-cols-2">
           <label className="flex flex-col space-y-2 text-sm">
             <span className="font-medium">Sort by</span>
-            <Select value={sortBy} onValueChange={onSortByChange}>
-              <SelectTrigger className="h-9 w-full">
-                <SelectValue placeholder="Select sorting" />
-              </SelectTrigger>
-              <SelectContent>
-                {resolvedSortByOptions.map((sortOption) => (
-                  <SelectItem key={sortOption.value} value={sortOption.value}>
-                    {sortOption.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="outline" className="h-9 w-full justify-start font-normal">
+                  {selectedSortByOption}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuLabel>Sort by</DropdownMenuLabel>
+                <DropdownMenuRadioGroup value={sortBy} onValueChange={onSortByChange}>
+                  {resolvedSortByOptions.map((sortOption) => (
+                    <DropdownMenuRadioItem key={sortOption.value} value={sortOption.value}>
+                      {sortOption.label}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </label>
 
           <label className="flex flex-col space-y-2 text-sm">
             <span className="font-medium">Order</span>
-            <Select value={sortOrder} onValueChange={(next) => onSortOrderChange(next as SortOrder)}>
-              <SelectTrigger className="h-9 w-full">
-                <SelectValue placeholder="Select order" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="asc">Ascending</SelectItem>
-                <SelectItem value="desc">Descending</SelectItem>
-              </SelectContent>
-            </Select>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="outline" className="h-9 w-full justify-start font-normal">
+                  {selectedSortOrderLabel}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuLabel>Order</DropdownMenuLabel>
+                <DropdownMenuRadioGroup value={sortOrder} onValueChange={(next) => onSortOrderChange(next as SortOrder)}>
+                  <DropdownMenuRadioItem value="asc">Ascending</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="desc">Descending</DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </label>
         </div>
       </div>

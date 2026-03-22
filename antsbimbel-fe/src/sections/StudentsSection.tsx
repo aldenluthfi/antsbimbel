@@ -12,6 +12,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { parseApiError, studentsApi, type Student } from "@/lib/api"
@@ -19,6 +27,11 @@ import { notifySubmitError } from "@/lib/helpers/notifications"
 import { getStudentFullName } from "@/lib/helpers/schedule"
 
 export function StudentsSection({ token }: { token: string }) {
+  const levelOptions: Array<{ value: Student["level"]; label: string }> = [
+    { value: "SD", label: "SD" },
+    { value: "SMP", label: "SMP" },
+    { value: "SMA", label: "SMA" },
+  ]
   const [students, setStudents] = useState<Student[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [page, setPage] = useState(1)
@@ -333,15 +346,26 @@ export function StudentsSection({ token }: { token: string }) {
               </label>
               <label className="flex flex-col space-y-2 text-sm">
                 <span className="font-medium">Level</span>
-                <select
-                  value={createForm.level}
-                  onChange={(event) => setCreateForm({ ...createForm, level: event.target.value as Student["level"] })}
-                  className="h-9 w-full rounded-lg border border-border bg-background px-3 text-sm"
-                >
-                  <option value="SD">SD</option>
-                  <option value="SMP">SMP</option>
-                  <option value="SMA">SMA</option>
-                </select>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button type="button" variant="outline" className="h-9 w-full justify-start font-normal">
+                      {createForm.level}
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    <DropdownMenuLabel>Level</DropdownMenuLabel>
+                    <DropdownMenuRadioGroup
+                      value={createForm.level}
+                      onValueChange={(nextLevel) => setCreateForm({ ...createForm, level: nextLevel as Student["level"] })}
+                    >
+                      {levelOptions.map((levelOption) => (
+                        <DropdownMenuRadioItem key={levelOption.value} value={levelOption.value}>
+                          {levelOption.label}
+                        </DropdownMenuRadioItem>
+                      ))}
+                    </DropdownMenuRadioGroup>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </label>
               <label className="col-span-full flex items-center gap-2 text-sm">
                 <input
@@ -407,15 +431,26 @@ export function StudentsSection({ token }: { token: string }) {
               </label>
               <label className="flex flex-col space-y-2 text-sm">
                 <span className="font-medium">Level</span>
-                <select
-                  value={editForm.level}
-                  onChange={(event) => setEditForm({ ...editForm, level: event.target.value as Student["level"] })}
-                  className="h-9 w-full rounded-lg border border-border bg-background px-3 text-sm"
-                >
-                  <option value="SD">SD</option>
-                  <option value="SMP">SMP</option>
-                  <option value="SMA">SMA</option>
-                </select>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button type="button" variant="outline" className="h-9 w-full justify-start font-normal">
+                      {editForm.level}
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    <DropdownMenuLabel>Level</DropdownMenuLabel>
+                    <DropdownMenuRadioGroup
+                      value={editForm.level}
+                      onValueChange={(nextLevel) => setEditForm({ ...editForm, level: nextLevel as Student["level"] })}
+                    >
+                      {levelOptions.map((levelOption) => (
+                        <DropdownMenuRadioItem key={levelOption.value} value={levelOption.value}>
+                          {levelOption.label}
+                        </DropdownMenuRadioItem>
+                      ))}
+                    </DropdownMenuRadioGroup>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </label>
               <label className="col-span-full flex items-center gap-2 text-sm">
                 <input
