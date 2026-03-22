@@ -68,6 +68,7 @@ class CheckOut(models.Model):
 class Schedule(models.Model):
 	STATUS_UPCOMING = 'upcoming'
 	STATUS_DONE = 'done'
+	STATUS_AUTODONE = 'autodone'
 	STATUS_MISSED = 'missed'
 	STATUS_CANCELLED = 'cancelled'
 	STATUS_RESCHEDULED = 'rescheduled'
@@ -78,6 +79,7 @@ class Schedule(models.Model):
 	STATUS_CHOICES = (
 		(STATUS_UPCOMING, 'Upcoming'),
 		(STATUS_DONE, 'Done'),
+		(STATUS_AUTODONE, 'Autodone'),
 		(STATUS_MISSED, 'Missed'),
 		(STATUS_CANCELLED, 'Cancelled'),
 		(STATUS_RESCHEDULED, 'Rescheduled'),

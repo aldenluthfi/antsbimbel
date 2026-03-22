@@ -9,7 +9,7 @@ from rest_framework.test import APITestCase
 from rest_framework.exceptions import ValidationError
 
 from .google_gmail import GoogleGmailSendError
-from .models import EmailBlastRecord, Request, Schedule, Student
+from .models import CheckIn, CheckOut, EmailBlastRecord, Request, Schedule, Student
 from .serializers import UserSerializer
 
 
@@ -683,3 +683,85 @@ class ScheduleExtensionFlowTests(APITestCase):
 		self.schedule.refresh_from_db()
 		self.assertEqual(self.schedule.status, Schedule.STATUS_RESCHEDULED)
 		self.assertEqual(Schedule.objects.count(), 2)
+
+
+class ScheduleAutodoneFlowTests(APITestCase):
+	def setUp(self):
+		self.admin = User.objects.create_user(
+			username='admin-autodone',
+			password='password123',
+			is_staff=True,
+		)
+		self.tutor = User.objects.create_user(
+			username='tutor-autodone',
+			password='password123',
+			is_staff=False,
+		)
+		self.student = Student.objects.create(first_name='Autodone', last_name='Student')
+
+	def _create_past_schedule(self, *, status=Schedule.STATUS_UPCOMING):
+		now = timezone.now()
+		start_datetime = now - timedelta(hours=3)
+		end_datetime = now - timedelta(minutes=31)
+		return Schedule.objects.create(
+			tutor=self.tutor,
+			student=self.student,
+			subject_topic='Physics',
+			description='Autodone status scenario',
+			start_datetime=start_datetime,
+			end_datetime=end_datetime,
+			status=status,
+		)
+
+	def _create_check_in(self, schedule):
+		check_in = CheckIn.objects.create(
+			tutor=self.tutor,
+			student=self.student,
+			check_in_time=schedule.start_datetime,
+			check_in_location='-6.2,106.8',
+			check_in_photo='https://example.com/check-in.jpg',
+		)
+		schedule.check_in = check_in
+		schedule.save(update_fields=['check_in'])
+		return check_in
+
+	def test_elapsed_checkout_window_without_checkout_sets_autodone(self):
+		schedule = self._create_past_schedule(status=Schedule.STATUS_UPCOMING)
+		self._create_check_in(schedule)
+
+		self.client.force_authenticate(user=self.admin)
+		response = self.client.get(reverse('schedules-list'))
+
+		self.assertEqual(response.status_code, status.HTTP_200_OK)
+		schedule.refresh_from_db()
+		self.assertEqual(schedule.status, Schedule.STATUS_AUTODONE)
+
+		result_map = {item['id']: item['status'] for item in response.data['results']}
+		self.assertEqual(result_map[schedule.id], Schedule.STATUS_AUTODONE)
+
+	def test_elapsed_checkout_window_with_checkout_keeps_current_status(self):
+		schedule = self._create_past_schedule(status=Schedule.STATUS_UPCOMING)
+		check_in = self._create_check_in(schedule)
+		CheckOut.objects.create(
+			check_in=check_in,
+			check_out_time=schedule.end_datetime,
+			check_out_photo='https://example.com/check-out.jpg',
+		)
+
+		self.client.force_authenticate(user=self.admin)
+		response = self.client.get(reverse('schedules-list'))
+
+		self.assertEqual(response.status_code, status.HTTP_200_OK)
+		schedule.refresh_from_db()
+		self.assertEqual(schedule.status, Schedule.STATUS_UPCOMING)
+
+	def test_status_filter_accepts_autodone(self):
+		schedule = self._create_past_schedule(status=Schedule.STATUS_AUTODONE)
+
+		self.client.force_authenticate(user=self.admin)
+		response = self.client.get(reverse('schedules-list'), {'status': Schedule.STATUS_AUTODONE})
+
+		self.assertEqual(response.status_code, status.HTTP_200_OK)
+		self.assertGreaterEqual(response.data['count'], 1)
+		result_ids = {item['id'] for item in response.data['results']}
+		self.assertIn(schedule.id, result_ids)

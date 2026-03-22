@@ -64,6 +64,7 @@ class ScheduleViewSet(viewsets.ModelViewSet):
     ALLOWED_SCHEDULE_STATUS = {
         Schedule.STATUS_UPCOMING,
         Schedule.STATUS_DONE,
+        Schedule.STATUS_AUTODONE,
         Schedule.STATUS_MISSED,
         Schedule.STATUS_CANCELLED,
         Schedule.STATUS_RESCHEDULED,
@@ -158,6 +159,20 @@ class ScheduleViewSet(viewsets.ModelViewSet):
             start_datetime__lt=overdue_cutoff,
             check_in__isnull=True,
         ).update(status=Schedule.STATUS_MISSED)
+
+    @staticmethod
+    def _auto_checkout_elapsed_schedules():
+        checkout_elapsed_cutoff = timezone.now() - timedelta(minutes=30)
+        Schedule.objects.filter(
+            status__in={
+                Schedule.STATUS_UPCOMING,
+                Schedule.STATUS_PENDING,
+                Schedule.STATUS_EXTENDED,
+            },
+            end_datetime__lt=checkout_elapsed_cutoff,
+            check_in__isnull=False,
+            check_in__check_out__isnull=True,
+        ).update(status=Schedule.STATUS_AUTODONE)
 
     @extend_schema(parameters=SCHEDULE_LIST_QUERY_PARAMETERS)
     def list(self, request, *args, **kwargs):
@@ -259,6 +274,7 @@ class ScheduleViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         self._mark_overdue_upcoming_as_missed()
+        self._auto_checkout_elapsed_schedules()
         queryset = super().get_queryset()
         user = self.request.user
 
@@ -296,7 +312,7 @@ class ScheduleViewSet(viewsets.ModelViewSet):
             status_value = status_param.strip().lower()
             if status_value not in self.ALLOWED_SCHEDULE_STATUS:
                 raise ValidationError(
-                    {'status': 'Invalid status. Allowed values are upcoming, done, missed, cancelled, rescheduled, extended, pending, rejected.'}
+                    {'status': 'Invalid status. Allowed values are upcoming, done, autodone, missed, cancelled, rescheduled, extended, pending, rejected.'}
                 )
             queryset = queryset.filter(status=status_value)
 

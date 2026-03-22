@@ -32,7 +32,7 @@ LIST_QUERY_PARAMETERS = [
     ),
     OpenApiParameter(
         name='status',
-        description='Filter by schedule status. Allowed: upcoming, done, missed, cancelled, rescheduled, extended, pending, rejected.',
+        description='Filter by schedule status. Allowed: upcoming, done, autodone, missed, cancelled, rescheduled, extended, pending, rejected.',
         required=False,
         type=OpenApiTypes.STR,
         location=OpenApiParameter.QUERY,

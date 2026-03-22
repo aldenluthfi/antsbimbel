@@ -75,9 +75,14 @@ class ScheduleSerializer(serializers.ModelSerializer):
         return attrs
 
     def validate_status(self, status_value):
-        if status_value in {Schedule.STATUS_RESCHEDULED, Schedule.STATUS_MISSED, Schedule.STATUS_EXTENDED}:
+        if status_value in {
+            Schedule.STATUS_RESCHEDULED,
+            Schedule.STATUS_MISSED,
+            Schedule.STATUS_EXTENDED,
+            Schedule.STATUS_AUTODONE,
+        }:
             raise serializers.ValidationError(
-                'Status "rescheduled", "missed", and "extended" are managed by the system and cannot be set manually.'
+                'Status "rescheduled", "missed", "extended", and "autodone" are managed by the system and cannot be set manually.'
             )
         return status_value
 

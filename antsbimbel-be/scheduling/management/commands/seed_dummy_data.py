@@ -199,6 +199,7 @@ class Command(BaseCommand):
         statuses = [
             Schedule.STATUS_UPCOMING,
             Schedule.STATUS_DONE,
+            Schedule.STATUS_AUTODONE,
             Schedule.STATUS_CANCELLED,
             Schedule.STATUS_RESCHEDULED,
             Schedule.STATUS_EXTENDED,
@@ -210,7 +211,16 @@ class Command(BaseCommand):
             target_date = today + timedelta(days=day_offset)
             start_hour = random.randint(8, 17)
             start_minute = random.choice([0, 15, 30, 45])
-            duration_hours = random.randint(1, 3)
+            status = random.choice(statuses)
+
+            if status == Schedule.STATUS_EXTENDED:
+                possible_durations = [4, 6]
+            else:
+                possible_durations = [2, 4]
+
+            max_duration_hours = 21 - start_hour
+            valid_durations = [duration for duration in possible_durations if duration <= max_duration_hours]
+            duration_hours = random.choice(valid_durations or [2])
 
             start_datetime = timezone.make_aware(
                 datetime.combine(target_date, time(hour=start_hour, minute=start_minute)),
@@ -233,7 +243,7 @@ class Command(BaseCommand):
                     description=random.choice(self.SCHEDULE_DESCRIPTIONS) if random.random() < 0.75 else "",
                     start_datetime=start_datetime,
                     end_datetime=end_datetime,
-                    status=random.choice(statuses),
+                    status=status,
                 )
             )
 
