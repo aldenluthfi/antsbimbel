@@ -9,6 +9,7 @@ import { SchedulesSection } from "@/sections/SchedulesSection"
 import { StudentsSection } from "@/sections/StudentsSection"
 import { TutorPasswordSection } from "@/sections/TutorPasswordSection"
 import { UsersSection } from "@/sections/UsersSection"
+import { getUserFullName } from "@/lib/helpers/schedule"
 
 type DashboardTab = "users" | "students" | "schedules" | "requests"
 
@@ -79,7 +80,7 @@ export function DashboardPage({
               {isAdmin ? "Admin Dashboard" : "Tutor Dashboard"}
             </h1>
             <p className="text-sm text-muted-foreground">
-              Logged in as {session.user.username} ({session.user.role})
+              Logged in as {getUserFullName(session.user)}
             </p>
           </div>
 

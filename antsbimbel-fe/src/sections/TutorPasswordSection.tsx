@@ -79,7 +79,7 @@ export function TutorPasswordSection({ token }: { token: string }) {
 
         <form className="grid gap-3" onSubmit={submit}>
           <label className="flex flex-col space-y-2 text-sm">
-            <span className="font-medium">Current password</span>
+            <span className="font-medium">Current password <span className="text-destructive">*</span></span>
             <Input
               required
               type="password"
@@ -91,7 +91,7 @@ export function TutorPasswordSection({ token }: { token: string }) {
           </label>
 
           <label className="flex flex-col space-y-2 text-sm">
-            <span className="font-medium">New password</span>
+            <span className="font-medium">New password <span className="text-destructive">*</span></span>
             <Input
               required
               type="password"
@@ -103,7 +103,7 @@ export function TutorPasswordSection({ token }: { token: string }) {
           </label>
 
           <label className="flex flex-col space-y-2 text-sm">
-            <span className="font-medium">Confirm new password</span>
+            <span className="font-medium">Confirm new password <span className="text-destructive">*</span></span>
             <Input
               required
               type="password"

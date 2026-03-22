@@ -23,7 +23,7 @@ import {
 } from "@/lib/api"
 import {
   displayStudentName,
-  displayTutorName,
+  displayUserName,
   formatDateTime,
   formatTimeRange,
   getCurrentWibDate,
@@ -218,7 +218,7 @@ export function RequestsSection({ token }: { token: string }) {
           {
             id: `request-${requestItem.id}`,
             studentName: displayStudentName(schedule),
-            tutorName: displayTutorName(schedule),
+            tutorName: displayUserName(schedule),
             scheduleHourLabel: formatTimeRange(schedule.start_datetime, schedule.end_datetime),
             statusLabel: statusPresentation.label,
             statusDotClassName: statusPresentation.className,
@@ -357,7 +357,7 @@ export function RequestsSection({ token }: { token: string }) {
                 </Badge>
               </div>
 
-              <p className="mt-2 text-muted-foreground">Tutor: {schedule ? displayTutorName(schedule) : "-"}</p>
+              <p className="mt-2 text-muted-foreground">Tutor: {schedule ? displayUserName(schedule) : "-"}</p>
               <p className="text-muted-foreground">Student: {schedule ? displayStudentName(schedule) : "-"}</p>
               <p className="text-muted-foreground">
                 Type: <Badge variant="outline" className={requestType.className}>{requestType.label}</Badge>
@@ -412,7 +412,7 @@ export function RequestsSection({ token }: { token: string }) {
 
               return (
                 <tr key={requestItem.id} className="border-t border-border">
-                  <td className="px-3 py-2">{schedule ? displayTutorName(schedule) : "-"}</td>
+                  <td className="px-3 py-2">{schedule ? displayUserName(schedule) : "-"}</td>
                   <td className="px-3 py-2">{schedule ? displayStudentName(schedule) : "-"}</td>
                   <td className="px-3 py-2">
                     <Badge variant="outline" className={requestType.className}>

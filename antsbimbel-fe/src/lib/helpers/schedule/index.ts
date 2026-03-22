@@ -16,9 +16,9 @@ export {
 export { buildAttendancePhotoUrl } from "./attendance"
 export {
   displayStudentName,
-  displayTutorName,
+  displayUserName,
   getStudentFullName,
-  getTutorFullName,
+  getUserFullName,
 } from "./names"
 export { getScheduleStatusPresentation } from "./status"
 export type { CalendarItem, CalendarMode } from "./types"

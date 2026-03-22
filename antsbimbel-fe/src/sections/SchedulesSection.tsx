@@ -53,7 +53,7 @@ import {
   type CalendarItem,
   type CalendarMode,
   displayStudentName,
-  displayTutorName,
+  displayUserName,
   formatDateTime,
   formatDateTimeRange,
   formatTimeRange,
@@ -632,7 +632,61 @@ export function SchedulesSection({
     await requestLocationPermission()
   }
 
+  const getUnavailableCaptureReason = (mode: "check-in" | "check-out", schedule: Schedule): string | null => {
+    if (mode === "check-in") {
+      if (schedule.check_in_detail) {
+        return "Check in already submitted"
+      }
+
+      if (schedule.status === "cancelled") {
+        return "Schedule is cancelled"
+      }
+
+      if (schedule.status === "rejected") {
+        return "Schedule request was rejected"
+      }
+
+      if (schedule.status === "done" || schedule.status === "missed") {
+        return "Schedule is already finished"
+      }
+
+      if (!schedule.can_check_in) {
+        return "Check in only available near the start time"
+      }
+
+      return null
+    }
+
+    if (schedule.check_out_detail) {
+      return "Check out already submitted"
+    }
+
+    if (!schedule.check_in_id) {
+      return "Check in first before check out"
+    }
+
+    if (schedule.status === "cancelled") {
+      return "Schedule is cancelled"
+    }
+
+    if (schedule.status === "rejected") {
+      return "Schedule request was rejected"
+    }
+
+    if (!schedule.can_check_out) {
+      return "Check out only available after check in and near the end time"
+    }
+
+    return null
+  }
+
   const openCaptureDialog = async (mode: "check-in" | "check-out", schedule: Schedule) => {
+    const unavailableReason = getUnavailableCaptureReason(mode, schedule)
+    if (unavailableReason) {
+      toast.info(unavailableReason)
+      return
+    }
+
     setError("")
     setActiveCaptureSchedule(schedule)
     setCaptureMode(mode)
@@ -768,7 +822,7 @@ export function SchedulesSection({
         return {
           id: `schedule-${schedule.id}`,
           studentName: displayStudentName(schedule),
-          tutorName: displayTutorName(schedule),
+          tutorName: displayUserName(schedule),
           scheduleHourLabel: formatTimeRange(schedule.start_datetime, schedule.end_datetime),
           statusLabel: statusPresentation.label,
           statusDotClassName: statusPresentation.className,
@@ -934,8 +988,8 @@ export function SchedulesSection({
           ))
           : schedules.map((schedule) => {
           const statusPresentation = getScheduleStatusPresentation(schedule)
-          const canSubmitCheckIn = schedule.can_check_in
-          const canSubmitCheckOut = schedule.can_check_out
+          const checkInUnavailableReason = getUnavailableCaptureReason("check-in", schedule)
+          const checkOutUnavailableReason = getUnavailableCaptureReason("check-out", schedule)
           return (
             <article key={schedule.id} className="rounded-xl border border-border bg-background p-3 text-sm">
               <div className="flex items-start justify-between gap-3">
@@ -949,7 +1003,7 @@ export function SchedulesSection({
                   {statusPresentation.label}
                 </Badge>
               </div>
-              <p className="mt-2 text-muted-foreground">Tutor: {displayTutorName(schedule)}</p>
+              <p className="mt-2 text-muted-foreground">Tutor: {displayUserName(schedule)}</p>
               <p className="text-muted-foreground">Student: {displayStudentName(schedule)}</p>
               <p className="text-muted-foreground">Topic: {schedule.subject_topic}</p>
               <p className="text-muted-foreground">Description: {schedule.description || "-"}</p>
@@ -978,8 +1032,12 @@ export function SchedulesSection({
                   <Button
                     size="sm"
                     onClick={() => void openCaptureDialog("check-in", schedule)}
-                    className="w-full disabled:border-border disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100"
-                    disabled={!canSubmitCheckIn}
+                    className={`w-full${
+                      checkInUnavailableReason
+                        ? " border-border bg-muted text-muted-foreground opacity-100 hover:bg-muted hover:text-muted-foreground"
+                        : ""
+                    }`}
+                    aria-disabled={Boolean(checkInUnavailableReason)}
                   >
                     Check in
                   </Button>
@@ -996,17 +1054,19 @@ export function SchedulesSection({
                   </Button>
                 ) : canManage ? (
                   <p className="text-sm text-muted-foreground">Check out: Not yet</p>
-                ) : schedule.check_in_id ? (
+                ) : (
                   <Button
                     size="sm"
                     onClick={() => void openCaptureDialog("check-out", schedule)}
-                    className="w-full disabled:border-border disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100"
-                    disabled={!canSubmitCheckOut}
+                    className={`w-full${
+                      checkOutUnavailableReason
+                        ? " border-border bg-muted text-muted-foreground opacity-100 hover:bg-muted hover:text-muted-foreground"
+                        : ""
+                    }`}
+                    aria-disabled={Boolean(checkOutUnavailableReason)}
                   >
                     Check out
                   </Button>
-                ) : (
-                  <p className="text-sm text-muted-foreground">Check out: Check in first</p>
                 )}
 
                 {canManage ? (
@@ -1098,10 +1158,14 @@ export function SchedulesSection({
                 </tr>
               ))
               : null}
-            {schedules.map((schedule) => (
+            {schedules.map((schedule) => {
+              const checkInUnavailableReason = getUnavailableCaptureReason("check-in", schedule)
+              const checkOutUnavailableReason = getUnavailableCaptureReason("check-out", schedule)
+
+              return (
               <tr key={schedule.id} className="border-t border-border">
                 {!canManage ? <td className="px-3 py-2">{displayStudentName(schedule)}</td> : null}
-                {canManage ? <td className="px-3 py-2">{displayTutorName(schedule)}</td> : null}
+                {canManage ? <td className="px-3 py-2">{displayUserName(schedule)}</td> : null}
                 {canManage ? <td className="px-3 py-2">{displayStudentName(schedule)}</td> : null}
                 <td className="px-3 py-2">{formatDateTimeRange(schedule.start_datetime, schedule.end_datetime)}</td>
                 <td className="px-3 py-2">
@@ -1126,8 +1190,10 @@ export function SchedulesSection({
                       <Button
                         size="sm"
                         onClick={() => void openCaptureDialog("check-in", schedule)}
-                        className="disabled:border-border disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100"
-                        disabled={!schedule.can_check_in}
+                        className={checkInUnavailableReason
+                          ? "border-border bg-muted text-muted-foreground opacity-100 hover:bg-muted hover:text-muted-foreground"
+                          : undefined}
+                        aria-disabled={Boolean(checkInUnavailableReason)}
                       >
                         Check in
                       </Button>
@@ -1144,17 +1210,17 @@ export function SchedulesSection({
                       >
                         View details
                       </Button>
-                    ) : schedule.check_in_id ? (
+                    ) : (
                       <Button
                         size="sm"
                         onClick={() => void openCaptureDialog("check-out", schedule)}
-                        className="disabled:border-border disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100"
-                        disabled={!schedule.can_check_out}
+                        className={checkOutUnavailableReason
+                          ? "border-border bg-muted text-muted-foreground opacity-100 hover:bg-muted hover:text-muted-foreground"
+                          : undefined}
+                        aria-disabled={Boolean(checkOutUnavailableReason)}
                       >
                         Check out
                       </Button>
-                    ) : (
-                      "Check in first"
                     )}
                   </td>
                 ) : null}
@@ -1187,7 +1253,7 @@ export function SchedulesSection({
                   </td>
                 )}
               </tr>
-            ))}
+            )})}
             {schedules.length === 0 && !loading ? (
               <tr>
                 <td className="px-3 py-5 text-center text-muted-foreground" colSpan={canManage ? 6 : 8}>
@@ -1619,7 +1685,7 @@ export function SchedulesSection({
             <DialogHeader>
               <DialogTitle>Attendance details</DialogTitle>
               <DialogDescription>
-                {displayTutorName(detailDialogState.schedule)} • {displayStudentName(detailDialogState.schedule)} •{" "}
+                {displayUserName(detailDialogState.schedule)} • {displayStudentName(detailDialogState.schedule)} •{" "}
                 <Badge
                   variant="outline"
                   className={getScheduleStatusPresentation(detailDialogState.schedule).className}

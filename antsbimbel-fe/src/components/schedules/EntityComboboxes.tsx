@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { type ApiUser, type Student } from "@/lib/api"
-import { getStudentFullName, getTutorFullName } from "@/lib/helpers/schedule"
+import { getStudentFullName, getUserFullName } from "@/lib/helpers/schedule"
 
 export function TutorCombobox({
   tutors,
@@ -36,7 +36,7 @@ export function TutorCombobox({
       return (
         String(tutor.id).includes(normalized) ||
         tutor.username.toLowerCase().includes(normalized) ||
-        getTutorFullName(tutor).toLowerCase().includes(normalized) ||
+        getUserFullName(tutor).toLowerCase().includes(normalized) ||
         tutor.email.toLowerCase().includes(normalized)
       )
     })
@@ -64,7 +64,7 @@ export function TutorCombobox({
         >
           <span className="truncate text-left">
             {selectedTutor
-              ? `${getTutorFullName(selectedTutor)} (#${selectedTutor.id})`
+              ? `${getUserFullName(selectedTutor)} (#${selectedTutor.id})`
               : (placeholder ?? "Select tutor")}
           </span>
           <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-60" />
@@ -105,8 +105,8 @@ export function TutorCombobox({
                   className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-muted"
                 >
                   <span className="min-w-0">
-                    <span className="block truncate font-medium">{getTutorFullName(tutor)}</span>
-                    <span className="block truncate text-xs text-muted-foreground">#{tutor.id}</span>
+                    <span className="block truncate font-medium">{getUserFullName(tutor)}</span>
+                    <span className="block truncate text-xs text-muted-foreground">ID {tutor.id} • {tutor.email}</span>
                   </span>
                   {isSelected ? <Check className="size-4" /> : null}
                 </button>
@@ -216,7 +216,7 @@ export function StudentCombobox({
                 >
                   <span className="min-w-0">
                     <span className="block truncate font-medium">{getStudentFullName(student)}</span>
-                    <span className="block truncate text-xs text-muted-foreground">#{student.id}</span>
+                    <span className="block truncate text-xs text-muted-foreground">ID {student.id} • {student.email}</span>
                   </span>
                   {isSelected ? <Check className="size-4" /> : null}
                 </button>
