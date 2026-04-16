@@ -42,10 +42,6 @@ class GoogleDriveUploader:
             'background': {'red': 1, 'green': 0.95, 'blue': 0.84},
             'foreground': {'red': 0.57, 'green': 0.36, 'blue': 0.03},
         },
-        'extended': {
-            'background': {'red': 0.86, 'green': 0.95, 'blue': 0.89},
-            'foreground': {'red': 0.05, 'green': 0.45, 'blue': 0.3},
-        },
         'pending': {
             'background': {'red': 1, 'green': 0.93, 'blue': 0.84},
             'foreground': {'red': 0.6, 'green': 0.26, 'blue': 0.03},

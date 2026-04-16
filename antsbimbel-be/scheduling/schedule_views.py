@@ -27,9 +27,13 @@ from .schedule_serializers import ScheduleSerializer
 class TutorScheduleRequestPayloadSerializer(serializers.Serializer):
     student = serializers.IntegerField(required=True)
     subject_topic = serializers.CharField(required=True)
-    description = serializers.CharField(required=False, allow_blank=True, default='')
+    description = serializers.CharField(required=True, allow_blank=False)
     start_datetime = serializers.DateTimeField(required=True)
     end_datetime = serializers.DateTimeField(required=True)
+
+
+class TutorCancelRequestPayloadSerializer(serializers.Serializer):
+    description = serializers.CharField(required=True, allow_blank=False)
 
 
 class EmailBlastPayloadSerializer(serializers.Serializer):
@@ -43,6 +47,7 @@ class EmailBlastPermissionSerializer(serializers.Serializer):
 
 class TutorScheduleRequestResponseSerializer(serializers.Serializer):
     request_id = serializers.IntegerField()
+    request_count = serializers.IntegerField()
     schedule = ScheduleSerializer()
 
 
@@ -68,13 +73,12 @@ class ScheduleViewSet(viewsets.ModelViewSet):
         Schedule.STATUS_MISSED,
         Schedule.STATUS_CANCELLED,
         Schedule.STATUS_RESCHEDULED,
-        Schedule.STATUS_EXTENDED,
         Schedule.STATUS_PENDING,
         Schedule.STATUS_REJECTED,
     }
     TUTOR_RESCHEDULABLE_STATUS = {
         Schedule.STATUS_UPCOMING,
-        Schedule.STATUS_EXTENDED,
+        Schedule.STATUS_PENDING,
     }
     MINIMUM_SCHEDULE_DURATION = timedelta(hours=2)
     SESSION_DURATION = timedelta(hours=2)
@@ -104,6 +108,9 @@ class ScheduleViewSet(viewsets.ModelViewSet):
         if schedule_duration % ScheduleViewSet.SESSION_DURATION != timedelta(0):
             raise ValidationError({'end_datetime': 'Schedule duration must be in multiples of 2 hours.'})
 
+        if schedule_duration != ScheduleViewSet.SESSION_DURATION:
+            raise ValidationError({'end_datetime': 'Schedule duration must be exactly 2 hours.'})
+
     @staticmethod
     def _clone_schedule(schedule, *, start_datetime, end_datetime, status):
         return Schedule.objects.create(
@@ -117,21 +124,93 @@ class ScheduleViewSet(viewsets.ModelViewSet):
         )
 
     @staticmethod
-    def _create_request(old_schedule, new_schedule, extension=None):
-        return Request.objects.create(old_schedule=old_schedule, new_schedule=new_schedule, extension=extension)
+    def _validate_request_tutor_consistency(old_schedule, new_schedules):
+        tutor_ids = set()
+        if old_schedule is not None:
+            tutor_ids.add(old_schedule.tutor_id)
+
+        for schedule in new_schedules or []:
+            tutor_ids.add(schedule.tutor_id)
+
+        if len(tutor_ids) > 1:
+            raise ValidationError({'detail': 'All schedules in a request must be assigned to the same tutor.'})
+
+    @staticmethod
+    def _create_request(*, old_schedule, new_schedules, request_type, description, extension=None):
+        ScheduleViewSet._validate_request_tutor_consistency(old_schedule, new_schedules)
+
+        request_obj = Request.objects.create(
+            old_schedule=old_schedule,
+            request_type=request_type,
+            description=description,
+            extension=extension,
+        )
+        if new_schedules:
+            request_obj.new_schedules.add(*new_schedules)
+        return request_obj
 
     @classmethod
-    def _validate_extension_hours(cls, extension_delta):
+    def _split_into_session_windows(cls, start_datetime, end_datetime):
+        cls._validate_schedule_window(start_datetime, end_datetime)
+        return [(start_datetime, end_datetime)]
+
+    @classmethod
+    def _create_split_schedules(
+        cls,
+        *,
+        tutor,
+        student,
+        subject_topic,
+        description,
+        start_datetime,
+        end_datetime,
+        status,
+    ):
+        windows = cls._split_into_session_windows(start_datetime, end_datetime)
+        created_schedules = []
+
+        for window_start, window_end in windows:
+            created_schedules.append(
+                Schedule.objects.create(
+                    tutor=tutor,
+                    student=student,
+                    subject_topic=subject_topic,
+                    description=description,
+                    start_datetime=window_start,
+                    end_datetime=window_end,
+                    status=status,
+                )
+            )
+
+        return created_schedules
+
+    @classmethod
+    def _create_extension_request_schedules(cls, old_schedule, next_end_datetime):
+        extension_delta = next_end_datetime - old_schedule.end_datetime
         if extension_delta <= timedelta(0):
             raise ValidationError({'end_datetime': 'End datetime must be later than the current end datetime when extending.'})
-
-        if extension_delta < cls.MINIMUM_SCHEDULE_DURATION:
-            raise ValidationError({'end_datetime': 'Schedule extension must be at least 2 hours.'})
 
         if extension_delta % cls.SESSION_DURATION != timedelta(0):
             raise ValidationError({'end_datetime': 'Schedule extension must be in multiples of 2 hours.'})
 
-        return int(extension_delta.total_seconds() // 3600)
+        extension_windows = []
+        cursor_start = old_schedule.end_datetime
+        while cursor_start + cls.SESSION_DURATION <= next_end_datetime:
+            cursor_end = cursor_start + cls.SESSION_DURATION
+            extension_windows.append((cursor_start, cursor_end))
+            cursor_start = cursor_end
+
+        created_schedules = []
+        for window_start, window_end in extension_windows:
+            next_schedule = cls._clone_schedule(
+                old_schedule,
+                start_datetime=window_start,
+                end_datetime=window_end,
+                status=Schedule.STATUS_PENDING,
+            )
+            created_schedules.append(next_schedule)
+
+        return created_schedules
 
     @staticmethod
     def _local_day_start(day_value):
@@ -173,7 +252,7 @@ class ScheduleViewSet(viewsets.ModelViewSet):
         Schedule.objects.filter(
             status__in={
                 Schedule.STATUS_UPCOMING,
-                Schedule.STATUS_EXTENDED,
+                Schedule.STATUS_PENDING,
             },
             start_datetime__lt=overdue_cutoff,
             check_in__isnull=True,
@@ -186,7 +265,6 @@ class ScheduleViewSet(viewsets.ModelViewSet):
             status__in={
                 Schedule.STATUS_UPCOMING,
                 Schedule.STATUS_PENDING,
-                Schedule.STATUS_EXTENDED,
             },
             end_datetime__lt=checkout_elapsed_cutoff,
             check_in__isnull=False,
@@ -335,7 +413,7 @@ class ScheduleViewSet(viewsets.ModelViewSet):
                     {
                         'status': (
                             'Invalid status value(s). Allowed values are upcoming, done, autodone, missed, '
-                            'cancelled, rescheduled, extended, pending, rejected. '
+                            'cancelled, rescheduled, pending, rejected. '
                             'You can pass multiple values as repeated status params or a comma-separated list.'
                         )
                     }
@@ -347,17 +425,25 @@ class ScheduleViewSet(viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        self._validate_schedule_window(
-            serializer.validated_data['start_datetime'],
-            serializer.validated_data['end_datetime'],
+
+        start_datetime = serializer.validated_data['start_datetime']
+        end_datetime = serializer.validated_data['end_datetime']
+        self._validate_schedule_window(start_datetime, end_datetime)
+        self._validate_not_past(start_datetime, 'Schedules cannot be created in the past.')
+
+        created_schedules = self._create_split_schedules(
+            tutor=serializer.validated_data['tutor'],
+            student=serializer.validated_data['student'],
+            subject_topic=serializer.validated_data['subject_topic'],
+            description=serializer.validated_data.get('description') or '',
+            start_datetime=start_datetime,
+            end_datetime=end_datetime,
+            status=serializer.validated_data.get('status', Schedule.STATUS_UPCOMING),
         )
-        self._validate_not_past(
-            serializer.validated_data['start_datetime'],
-            'Schedules cannot be created in the past.',
-        )
-        self.perform_create(serializer)
-        headers = self.get_success_headers(serializer.data)
-        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
+        response_payload = self.get_serializer(created_schedules[0]).data
+        response_payload['created_count'] = len(created_schedules)
+        return Response(response_payload, status=status.HTTP_201_CREATED)
 
     def update(self, request, *args, **kwargs):
         partial = kwargs.pop('partial', False)
@@ -368,22 +454,24 @@ class ScheduleViewSet(viewsets.ModelViewSet):
                 raise ValidationError({'detail': 'Tutors can only submit partial updates for rescheduling.'})
 
             if instance.status not in self.TUTOR_RESCHEDULABLE_STATUS:
-                raise ValidationError({'detail': 'Only upcoming or extended schedules can be rescheduled.'})
+                raise ValidationError({'detail': 'Only upcoming or pending schedules can be rescheduled.'})
 
             payload_keys = set(request.data.keys())
-            invalid_fields = payload_keys - {'start_datetime', 'end_datetime'}
+            invalid_fields = payload_keys - {'start_datetime', 'end_datetime', 'description'}
             if invalid_fields:
-                raise ValidationError({'detail': 'Tutors can only edit start_datetime and end_datetime.'})
+                raise ValidationError({'detail': 'Tutors can only edit start_datetime, end_datetime, and description.'})
 
             if 'start_datetime' not in request.data or 'end_datetime' not in request.data:
                 raise ValidationError({'detail': 'start_datetime and end_datetime are required for tutor rescheduling.'})
+
+            request_description = str(request.data.get('description') or '').strip()
+            if not request_description:
+                raise ValidationError({'description': 'Description is required for tutor requests.'})
 
             serializer = self.get_serializer(instance, data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)
             next_start_datetime = serializer.validated_data['start_datetime']
             next_end_datetime = serializer.validated_data['end_datetime']
-
-            self._validate_schedule_window(next_start_datetime, next_end_datetime)
 
             if (
                 next_start_datetime == instance.start_datetime
@@ -393,30 +481,56 @@ class ScheduleViewSet(viewsets.ModelViewSet):
 
             self._validate_not_past(next_start_datetime, 'Tutors cannot reschedule to the past.')
 
+            pending_change_exists = Request.objects.filter(
+                old_schedule=instance,
+                status=Request.STATUS_PENDING,
+                request_type__in={Request.TYPE_EXTENSION, Request.TYPE_RESCHEDULE},
+            ).exists()
+            if pending_change_exists:
+                raise ValidationError({'detail': 'A pending schedule change request already exists for this schedule.'})
+
             same_start_datetime = next_start_datetime == instance.start_datetime
             if same_start_datetime:
-                extension_hours = self._validate_extension_hours(next_end_datetime - instance.end_datetime)
-                request_obj = self._create_request(old_schedule=instance, new_schedule=None, extension=extension_hours)
+                new_schedules = self._create_extension_request_schedules(instance, next_end_datetime)
+                request_obj = self._create_request(
+                    old_schedule=instance,
+                    new_schedules=new_schedules,
+                    request_type=Request.TYPE_EXTENSION,
+                    description=request_description,
+                    extension=int(self.SESSION_DURATION.total_seconds() // 3600),
+                )
                 if instance.status != Schedule.STATUS_PENDING:
                     instance.status = Schedule.STATUS_PENDING
                     instance.save(update_fields=['status'])
 
-                response_payload = self.get_serializer(instance).data
+                response_payload = self.get_serializer(new_schedules[0]).data
                 response_payload['request_id'] = request_obj.id
+                response_payload['request_count'] = len(new_schedules)
                 return Response(response_payload, status=status.HTTP_201_CREATED)
 
-            new_schedule = self._clone_schedule(
-                instance,
+            self._validate_schedule_window(next_start_datetime, next_end_datetime)
+            new_schedules = self._create_split_schedules(
+                tutor=instance.tutor,
+                student=instance.student,
+                subject_topic=instance.subject_topic,
+                description=instance.description,
                 start_datetime=next_start_datetime,
                 end_datetime=next_end_datetime,
                 status=Schedule.STATUS_PENDING,
             )
-            instance.status = Schedule.STATUS_RESCHEDULED
-            instance.save(update_fields=['status'])
+            request_obj = self._create_request(
+                old_schedule=instance,
+                new_schedules=new_schedules,
+                request_type=Request.TYPE_RESCHEDULE,
+                description=request_description,
+            )
+            if instance.status != Schedule.STATUS_PENDING:
+                instance.status = Schedule.STATUS_PENDING
+                instance.save(update_fields=['status'])
 
-            request_obj = self._create_request(old_schedule=instance, new_schedule=new_schedule)
-            response_payload = self.get_serializer(new_schedule).data
+            response_payload = self.get_serializer(new_schedules[0]).data
             response_payload['request_id'] = request_obj.id
+            response_payload['request_count'] = len(new_schedules)
             return Response(response_payload, status=status.HTTP_201_CREATED)
 
         serializer = self.get_serializer(instance, data=request.data, partial=partial)
@@ -424,8 +538,6 @@ class ScheduleViewSet(viewsets.ModelViewSet):
 
         next_start_datetime = serializer.validated_data.get('start_datetime', instance.start_datetime)
         next_end_datetime = serializer.validated_data.get('end_datetime', instance.end_datetime)
-        self._validate_schedule_window(next_start_datetime, next_end_datetime)
-
         if (
             next_start_datetime != instance.start_datetime
             or next_end_datetime != instance.end_datetime
@@ -434,22 +546,36 @@ class ScheduleViewSet(viewsets.ModelViewSet):
 
             same_start_datetime = next_start_datetime == instance.start_datetime
             if same_start_datetime:
-                self._validate_extension_hours(next_end_datetime - instance.end_datetime)
-                self.perform_update(serializer)
-                if instance.status != Schedule.STATUS_EXTENDED:
-                    instance.status = Schedule.STATUS_EXTENDED
-                    instance.save(update_fields=['status'])
-                return Response(self.get_serializer(instance).data, status=status.HTTP_200_OK)
+                if next_end_datetime <= instance.end_datetime:
+                    raise ValidationError(
+                        {'end_datetime': 'End datetime must be later than the current end datetime when extending.'}
+                    )
 
-            new_schedule = self._clone_schedule(
-                instance,
+                created_schedules = self._create_extension_request_schedules(instance, next_end_datetime)
+                for created_schedule in created_schedules:
+                    if created_schedule.status != Schedule.STATUS_UPCOMING:
+                        created_schedule.status = Schedule.STATUS_UPCOMING
+                        created_schedule.save(update_fields=['status'])
+
+                response_payload = self.get_serializer(created_schedules[0]).data
+                response_payload['created_count'] = len(created_schedules)
+                return Response(response_payload, status=status.HTTP_200_OK)
+
+            self._validate_schedule_window(next_start_datetime, next_end_datetime)
+            created_schedules = self._create_split_schedules(
+                tutor=instance.tutor,
+                student=instance.student,
+                subject_topic=instance.subject_topic,
+                description=instance.description,
                 start_datetime=next_start_datetime,
                 end_datetime=next_end_datetime,
                 status=Schedule.STATUS_UPCOMING,
             )
             instance.status = Schedule.STATUS_RESCHEDULED
             instance.save(update_fields=['status'])
-            return Response(self.get_serializer(new_schedule).data, status=status.HTTP_200_OK)
+            response_payload = self.get_serializer(created_schedules[0]).data
+            response_payload['created_count'] = len(created_schedules)
+            return Response(response_payload, status=status.HTTP_200_OK)
 
         self.perform_update(serializer)
         return Response(serializer.data)
@@ -480,21 +606,93 @@ class ScheduleViewSet(viewsets.ModelViewSet):
         except Student.DoesNotExist as exc:
             raise ValidationError({'student': 'Student with this id does not exist.'}) from exc
 
-        new_schedule = Schedule.objects.create(
+        overlap_exists = Schedule.objects.filter(
+            tutor=request.user,
+            student=student,
+            start_datetime__lt=end_datetime,
+            end_datetime__gt=start_datetime,
+            status__in={Schedule.STATUS_UPCOMING, Schedule.STATUS_PENDING},
+        ).exists()
+        if overlap_exists:
+            raise ValidationError({'detail': 'You already have an overlapping active/pending schedule for this student.'})
+
+        created_schedules = self._create_split_schedules(
             tutor=request.user,
             student=student,
             subject_topic=request_serializer.validated_data['subject_topic'],
-            description=request_serializer.validated_data.get('description') or '',
+            description=request_serializer.validated_data['description'],
             start_datetime=start_datetime,
             end_datetime=end_datetime,
             status=Schedule.STATUS_PENDING,
         )
-        request_obj = self._create_request(old_schedule=None, new_schedule=new_schedule)
+        request_obj = self._create_request(
+            old_schedule=None,
+            new_schedules=created_schedules,
+            request_type=Request.TYPE_NEW_SCHEDULE,
+            description=request_serializer.validated_data['description'],
+        )
 
         return Response(
             {
                 'request_id': request_obj.id,
-                'schedule': self.get_serializer(new_schedule).data,
+                'request_count': len(created_schedules),
+                'schedule': self.get_serializer(created_schedules[0]).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    @extend_schema(
+        request=TutorCancelRequestPayloadSerializer,
+        responses={
+            201: inline_serializer(
+                name='TutorCancelRequestResponse',
+                fields={
+                    'request_id': serializers.IntegerField(),
+                    'schedule_id': serializers.IntegerField(),
+                },
+            ),
+            400: MessageSerializer,
+            403: MessageSerializer,
+        },
+    )
+    @action(detail=True, methods=['post'], url_path='request-cancel')
+    def request_cancel(self, request, pk=None):
+        if not is_tutor(request.user):
+            return Response({'detail': 'Only tutors can request cancellations.'}, status=status.HTTP_403_FORBIDDEN)
+
+        schedule = self.get_object()
+        if schedule.tutor_id != request.user.id:
+            return Response({'detail': 'Tutors can only request cancellation for their own schedules.'}, status=status.HTTP_403_FORBIDDEN)
+
+        if schedule.status not in {Schedule.STATUS_UPCOMING, Schedule.STATUS_PENDING}:
+            raise ValidationError({'detail': 'Only upcoming or pending schedules can be cancelled.'})
+
+        cancel_serializer = TutorCancelRequestPayloadSerializer(data=request.data)
+        cancel_serializer.is_valid(raise_exception=True)
+
+        pending_cancel_exists = Request.objects.filter(
+            old_schedule=schedule,
+            request_type=Request.TYPE_CANCEL,
+            status=Request.STATUS_PENDING,
+        ).exists()
+        if pending_cancel_exists:
+            raise ValidationError({'detail': 'A pending cancellation request already exists for this schedule.'})
+
+        request_obj = self._create_request(
+            old_schedule=schedule,
+            new_schedules=[],
+            request_type=Request.TYPE_CANCEL,
+            description=cancel_serializer.validated_data['description'],
+        )
+
+        if schedule.status != Schedule.STATUS_PENDING:
+            schedule.status = Schedule.STATUS_PENDING
+            schedule.save(update_fields=['status'])
+
+        return Response(
+            {
+                'request_id': request_obj.id,
+                'schedule_id': schedule.id,
             },
             status=status.HTTP_201_CREATED,
         )

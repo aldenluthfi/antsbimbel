@@ -5,6 +5,14 @@ import { toast } from "sonner"
 import { CalendarBoard, DateFilterPanel, Pagination } from "@/components/schedules"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   DEFAULT_FILTERS,
@@ -25,6 +33,7 @@ import {
   displayStudentName,
   displayUserName,
   formatDateTime,
+  formatDateTimeRange,
   formatTimeRange,
   getCurrentWibDate,
   toWibCalendarDate,
@@ -47,21 +56,39 @@ function getRequestStatusPresentation(status: RequestStatus): { label: string; c
 }
 
 function getEffectiveRequestSchedule(requestItem: ScheduleRequest) {
-  return requestItem.new_schedule_detail ?? requestItem.old_schedule_detail
+  if (requestItem.request_type === "cancel") {
+    return requestItem.old_schedule_detail
+  }
+
+  if (requestItem.new_schedule_details.length > 0) {
+    const sortedNewSchedules = [...requestItem.new_schedule_details].sort((leftItem, rightItem) =>
+      new Date(leftItem.start_datetime).getTime() - new Date(rightItem.start_datetime).getTime()
+    )
+    return sortedNewSchedules[0]
+  }
+
+  return requestItem.old_schedule_detail
 }
 
 function getRequestTypePresentation(requestItem: ScheduleRequest): { label: string; className: string } {
-  if (requestItem.old_schedule && requestItem.new_schedule) {
+  if (requestItem.request_type === "extension" || requestItem.extension !== null) {
+    return {
+      label: "Extension",
+      className: "bg-teal-100 text-teal-700 border-teal-200 hover:bg-teal-200 hover:text-teal-900 hover:border-teal-300",
+    }
+  }
+
+  if (requestItem.request_type === "reschedule") {
     return {
       label: "Reschedule",
       className: "bg-amber-100 text-amber-700 border-amber-200 hover:bg-amber-200 hover:text-amber-900 hover:border-amber-300",
     }
   }
 
-  if (requestItem.old_schedule && !requestItem.new_schedule) {
+  if (requestItem.request_type === "cancel") {
     return {
-      label: "Extension",
-      className: "bg-teal-100 text-teal-700 border-teal-200 hover:bg-teal-200 hover:text-teal-900 hover:border-teal-300",
+      label: "Cancel",
+      className: "bg-zinc-100 text-zinc-700 border-zinc-200 hover:bg-zinc-200 hover:text-zinc-900 hover:border-zinc-300",
     }
   }
 
@@ -89,6 +116,7 @@ export function RequestsSection({ token }: { token: string }) {
   const [calendarRequests, setCalendarRequests] = useState<ScheduleRequest[]>([])
   const [tutors, setTutors] = useState<ApiUser[]>([])
   const [students, setStudents] = useState<Student[]>([])
+  const [detailRequest, setDetailRequest] = useState<ScheduleRequest | null>(null)
 
   const fetchRequests = async () => {
     setLoading(true)
@@ -234,7 +262,7 @@ export function RequestsSection({ token }: { token: string }) {
     const pending = requestItem.status === "pending"
 
     return (
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button size="sm" onClick={() => void runAction(requestItem, "approve")} disabled={!pending}>
           Approve
         </Button>
@@ -360,7 +388,14 @@ export function RequestsSection({ token }: { token: string }) {
               <p className="mt-2 text-muted-foreground">Tutor: {schedule ? displayUserName(schedule) : "-"}</p>
               <p className="text-muted-foreground">Student: {schedule ? displayStudentName(schedule) : "-"}</p>
               <p className="text-muted-foreground">
-                Type: <Badge variant="outline" className={requestType.className}>{requestType.label}</Badge>
+                Type:{" "}
+                <Badge
+                  variant="outline"
+                  className={`${requestType.className} cursor-pointer`}
+                  onClick={() => setDetailRequest(requestItem)}
+                >
+                  {requestType.label}
+                </Badge>
               </p>
 
               <div className="mt-3">{renderActions(requestItem)}</div>
@@ -415,7 +450,11 @@ export function RequestsSection({ token }: { token: string }) {
                   <td className="px-3 py-2">{schedule ? displayUserName(schedule) : "-"}</td>
                   <td className="px-3 py-2">{schedule ? displayStudentName(schedule) : "-"}</td>
                   <td className="px-3 py-2">
-                    <Badge variant="outline" className={requestType.className}>
+                    <Badge
+                      variant="outline"
+                      className={`${requestType.className} cursor-pointer`}
+                      onClick={() => setDetailRequest(requestItem)}
+                    >
                       {requestType.label}
                     </Badge>
                   </td>
@@ -431,6 +470,60 @@ export function RequestsSection({ token }: { token: string }) {
           </tbody>
         </table>
       </div>
+
+      <Dialog open={Boolean(detailRequest)} onOpenChange={(open) => !open && setDetailRequest(null)}>
+        <DialogContent className="sm:max-w-lg" showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>Request details</DialogTitle>
+            <DialogDescription>Detailed request info, including grouped schedules and reason.</DialogDescription>
+          </DialogHeader>
+
+          {detailRequest ? (
+            <div className="space-y-3 text-sm">
+              <div className="rounded-lg border border-border bg-muted/30 p-3">
+                <p className="font-medium">Request description</p>
+                <p className="mt-1 text-muted-foreground">{detailRequest.description || "-"}</p>
+              </div>
+              <div className="rounded-lg border border-border bg-muted/30 p-3">
+                <p><span className="font-medium">Created:</span> {formatDateTime(detailRequest.created_at)}</p>
+                <p className="mt-1"><span className="font-medium">Updated:</span> {formatDateTime(detailRequest.updated_at)}</p>
+              </div>
+
+              <div className="rounded-lg border border-border bg-muted/30 p-3">
+                <p className="font-medium">Previous schedule</p>
+                <p className="mt-1 text-muted-foreground">
+                  {detailRequest.old_schedule_detail
+                    ? formatDateTimeRange(
+                      detailRequest.old_schedule_detail.start_datetime,
+                      detailRequest.old_schedule_detail.end_datetime
+                    )
+                    : "-"}
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-border bg-muted/30 p-3">
+                <p className="font-medium">Requested schedule(s)</p>
+                {detailRequest.new_schedule_details.length > 0 ? (
+                  <div className="mt-1 space-y-1 text-muted-foreground">
+                    {detailRequest.new_schedule_details.map((newScheduleDetail) => (
+                      <p key={newScheduleDetail.id}>
+                        {formatDateTimeRange(newScheduleDetail.start_datetime, newScheduleDetail.end_datetime)}
+                      </p>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-1 text-muted-foreground">-</p>
+                )}
+                {detailRequest.extension !== null ? (
+                  <p className="mt-2 text-muted-foreground">Requested extension chunk: {detailRequest.extension} hour(s)</p>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
+          <DialogFooter showCloseButton />
+        </DialogContent>
+      </Dialog>
 
       <Pagination
         page={page}

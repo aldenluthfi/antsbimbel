@@ -202,7 +202,7 @@ class Command(BaseCommand):
             Schedule.STATUS_AUTODONE,
             Schedule.STATUS_CANCELLED,
             Schedule.STATUS_RESCHEDULED,
-            Schedule.STATUS_EXTENDED,
+            Schedule.STATUS_PENDING,
         ]
 
         schedules = []
@@ -213,14 +213,7 @@ class Command(BaseCommand):
             start_minute = random.choice([0, 15, 30, 45])
             status = random.choice(statuses)
 
-            if status == Schedule.STATUS_EXTENDED:
-                possible_durations = [4, 6]
-            else:
-                possible_durations = [2, 4]
-
-            max_duration_hours = 21 - start_hour
-            valid_durations = [duration for duration in possible_durations if duration <= max_duration_hours]
-            duration_hours = random.choice(valid_durations or [2])
+            duration_hours = 2
 
             start_datetime = timezone.make_aware(
                 datetime.combine(target_date, time(hour=start_hour, minute=start_minute)),
@@ -254,20 +247,20 @@ class Command(BaseCommand):
         if count <= 0 or not schedules:
             return 0
 
-        requests = []
+        created_count = 0
 
         for _ in range(count):
             request_type = random.choices(
-                ["new_schedule", "reschedule", "extension"],
-                weights=[35, 45, 20],
+                ["new_schedule", "reschedule", "extension", "cancel"],
+                weights=[30, 35, 20, 15],
                 k=1,
             )[0]
 
-            new_schedule = None
             old_schedule = None
+            new_schedules = []
 
             if request_type == "new_schedule":
-                new_schedule = random.choice(schedules)
+                new_schedules = [random.choice(schedules)]
             elif request_type == "reschedule":
                 new_schedule = random.choice(schedules)
                 related_old_schedules = [
@@ -277,7 +270,27 @@ class Command(BaseCommand):
                     and schedule.tutor_id == new_schedule.tutor_id
                     and schedule.student_id == new_schedule.student_id
                 ]
-                old_schedule = random.choice(related_old_schedules) if related_old_schedules else random.choice(schedules)
+                old_schedule = random.choice(related_old_schedules) if related_old_schedules else None
+                if old_schedule:
+                    new_schedules = [new_schedule]
+                else:
+                    request_type = "new_schedule"
+                    old_schedule = None
+                    new_schedules = [new_schedule]
+            elif request_type == "extension":
+                old_schedule = random.choice(schedules)
+                extension_start = old_schedule.end_datetime
+                extension_end = extension_start + timedelta(hours=2)
+                extension_schedule = Schedule.objects.create(
+                    tutor=old_schedule.tutor,
+                    student=old_schedule.student,
+                    subject_topic=old_schedule.subject_topic,
+                    description=old_schedule.description,
+                    start_datetime=extension_start,
+                    end_datetime=extension_end,
+                    status=Schedule.STATUS_PENDING,
+                )
+                new_schedules = [extension_schedule]
             else:
                 old_schedule = random.choice(schedules)
 
@@ -287,53 +300,39 @@ class Command(BaseCommand):
                 k=1,
             )[0]
 
-            extension_hours = None
-            if request_type == "extension":
-                extension_hours = random.choice([2, 4, 6])
+            request_obj = Request.objects.create(
+                old_schedule=old_schedule,
+                request_type=request_type,
+                description=f"Dummy {request_type} request description",
+                extension=2 if request_type == "extension" else None,
+                status=request_status,
+            )
+            if new_schedules:
+                request_obj.new_schedules.add(*new_schedules)
 
-            # Keep seeded request/schedule states consistent with approve/reject flows.
             if request_status == Request.STATUS_PENDING:
-                if new_schedule and new_schedule.status != Schedule.STATUS_PENDING:
-                    new_schedule.status = Schedule.STATUS_PENDING
-                    new_schedule.save(update_fields=["status"])
-                if request_type in {"reschedule", "extension"} and old_schedule and old_schedule.status != Schedule.STATUS_PENDING:
+                if old_schedule and old_schedule.status != Schedule.STATUS_PENDING:
                     old_schedule.status = Schedule.STATUS_PENDING
                     old_schedule.save(update_fields=["status"])
+                for schedule in new_schedules:
+                    if schedule.status != Schedule.STATUS_PENDING:
+                        schedule.status = Schedule.STATUS_PENDING
+                        schedule.save(update_fields=["status"])
             else:
-                if request_type == "extension":
-                    old_schedule_target_status = random.choice([
-                        Schedule.STATUS_UPCOMING,
-                        Schedule.STATUS_EXTENDED,
-                    ])
-                    if old_schedule and old_schedule.status != old_schedule_target_status:
-                        old_schedule.status = old_schedule_target_status
+                if request_type == "cancel":
+                    if old_schedule and old_schedule.status != Schedule.STATUS_CANCELLED:
+                        old_schedule.status = Schedule.STATUS_CANCELLED
                         old_schedule.save(update_fields=["status"])
                 else:
-                    new_schedule_target_status = random.choice([
-                        Schedule.STATUS_UPCOMING,
-                        Schedule.STATUS_REJECTED,
-                    ])
-                    if new_schedule and new_schedule.status != new_schedule_target_status:
-                        new_schedule.status = new_schedule_target_status
-                        new_schedule.save(update_fields=["status"])
+                    for schedule in new_schedules:
+                        target_status = random.choice([Schedule.STATUS_UPCOMING, Schedule.STATUS_REJECTED])
+                        if schedule.status != target_status:
+                            schedule.status = target_status
+                            schedule.save(update_fields=["status"])
+                    if old_schedule and old_schedule.status == Schedule.STATUS_PENDING:
+                        old_schedule.status = Schedule.STATUS_UPCOMING
+                        old_schedule.save(update_fields=["status"])
 
-                    if request_type == "reschedule" and old_schedule:
-                        old_schedule_target_status = random.choice([
-                            Schedule.STATUS_RESCHEDULED,
-                            Schedule.STATUS_UPCOMING,
-                        ])
-                        if old_schedule.status != old_schedule_target_status:
-                            old_schedule.status = old_schedule_target_status
-                            old_schedule.save(update_fields=["status"])
+            created_count += 1
 
-            requests.append(
-                Request(
-                    old_schedule=old_schedule,
-                    new_schedule=new_schedule,
-                    extension=extension_hours,
-                    status=request_status,
-                )
-            )
-
-        Request.objects.bulk_create(requests, batch_size=200)
-        return len(requests)
+        return created_count

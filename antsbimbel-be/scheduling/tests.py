@@ -183,7 +183,9 @@ class TutorScheduleRequestTests(APITestCase):
 
 		request_record = Request.objects.get(id=response.data['request_id'])
 		self.assertIsNone(request_record.old_schedule)
-		self.assertEqual(request_record.new_schedule_id, schedule.id)
+		self.assertEqual(request_record.request_type, Request.TYPE_NEW_SCHEDULE)
+		self.assertEqual(request_record.new_schedules.count(), 1)
+		self.assertEqual(request_record.new_schedules.first().id, schedule.id)
 		self.assertEqual(request_record.status, Request.STATUS_PENDING)
 
 	def test_tutor_request_rejects_duration_shorter_than_two_hours(self):
@@ -298,6 +300,34 @@ class TutorScheduleRequestTests(APITestCase):
 		)
 
 		self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+	def test_tutor_request_requires_description(self):
+		self.client.force_authenticate(user=self.tutor)
+
+		next_day = timezone.localdate() + timedelta(days=1)
+		start_datetime = timezone.make_aware(
+			datetime.combine(next_day, time(hour=9, minute=0)),
+			timezone.get_current_timezone(),
+		)
+		end_datetime = timezone.make_aware(
+			datetime.combine(next_day, time(hour=11, minute=0)),
+			timezone.get_current_timezone(),
+		)
+
+		response = self.client.post(
+			reverse('schedules-request-schedule'),
+			{
+				'student': self.student.id,
+				'subject_topic': 'Mathematics',
+				'description': '',
+				'start_datetime': start_datetime.isoformat(),
+				'end_datetime': end_datetime.isoformat(),
+			},
+			format='json',
+		)
+
+		self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+		self.assertIn('description', response.data)
 
 
 class ResetPasswordFlowTests(APITestCase):
@@ -584,6 +614,7 @@ class ScheduleExtensionFlowTests(APITestCase):
 			{
 				'start_datetime': self.start_datetime.isoformat(),
 				'end_datetime': new_end_datetime.isoformat(),
+				'description': 'Need extra session for unfinished materials',
 			},
 			format='json',
 		)
@@ -599,11 +630,12 @@ class ScheduleExtensionFlowTests(APITestCase):
 
 		request_obj = Request.objects.get(id=response.data['request_id'])
 		self.assertEqual(request_obj.old_schedule_id, self.schedule.id)
-		self.assertIsNone(request_obj.new_schedule)
+		self.assertEqual(request_obj.request_type, Request.TYPE_EXTENSION)
+		self.assertGreaterEqual(request_obj.new_schedules.count(), 1)
 		self.assertEqual(request_obj.extension, 2)
 		self.assertEqual(request_obj.status, Request.STATUS_PENDING)
 
-	def test_tutor_extension_approve_updates_old_schedule(self):
+	def test_tutor_extension_approve_keeps_old_and_activates_new_session(self):
 		request_response = self._request_tutor_extension(end_hour=13)
 		request_id = request_response.data['request_id']
 
@@ -613,11 +645,13 @@ class ScheduleExtensionFlowTests(APITestCase):
 		self.assertEqual(approve_response.status_code, status.HTTP_200_OK)
 
 		self.schedule.refresh_from_db()
-		self.assertEqual(self.schedule.status, Schedule.STATUS_EXTENDED)
-		self.assertEqual(timezone.localtime(self.schedule.end_datetime).hour, 13)
+		self.assertEqual(self.schedule.status, Schedule.STATUS_UPCOMING)
+		self.assertEqual(timezone.localtime(self.schedule.end_datetime).hour, 11)
 
 		request_obj = Request.objects.get(id=request_id)
 		self.assertEqual(request_obj.status, Request.STATUS_RESOLVED)
+		self.assertGreaterEqual(request_obj.new_schedules.count(), 1)
+		self.assertTrue(all(item.status == Schedule.STATUS_UPCOMING for item in request_obj.new_schedules.all()))
 
 	def test_tutor_extension_reject_restores_upcoming(self):
 		request_response = self._request_tutor_extension(end_hour=13)
@@ -634,8 +668,10 @@ class ScheduleExtensionFlowTests(APITestCase):
 
 		request_obj = Request.objects.get(id=request_id)
 		self.assertEqual(request_obj.status, Request.STATUS_RESOLVED)
+		self.assertGreaterEqual(request_obj.new_schedules.count(), 1)
+		self.assertTrue(all(item.status == Schedule.STATUS_REJECTED for item in request_obj.new_schedules.all()))
 
-	def test_tutor_different_start_marks_old_schedule_rescheduled_immediately(self):
+	def test_tutor_different_start_keeps_old_schedule_pending_until_resolved(self):
 		self.client.force_authenticate(user=self.tutor)
 
 		next_start_datetime = timezone.make_aware(
@@ -652,6 +688,7 @@ class ScheduleExtensionFlowTests(APITestCase):
 			{
 				'start_datetime': next_start_datetime.isoformat(),
 				'end_datetime': next_end_datetime.isoformat(),
+				'description': 'Need to move due to tutor availability conflict',
 			},
 			format='json',
 		)
@@ -660,18 +697,20 @@ class ScheduleExtensionFlowTests(APITestCase):
 		self.assertIn('request_id', response.data)
 
 		self.schedule.refresh_from_db()
-		self.assertEqual(self.schedule.status, Schedule.STATUS_RESCHEDULED)
+		self.assertEqual(self.schedule.status, Schedule.STATUS_PENDING)
 
 		new_schedule = Schedule.objects.exclude(id=self.schedule.id).get()
 		self.assertEqual(new_schedule.status, Schedule.STATUS_PENDING)
 
 		request_obj = Request.objects.get(id=response.data['request_id'])
 		self.assertEqual(request_obj.old_schedule_id, self.schedule.id)
-		self.assertEqual(request_obj.new_schedule_id, new_schedule.id)
+		self.assertEqual(request_obj.request_type, Request.TYPE_RESCHEDULE)
+		self.assertEqual(request_obj.new_schedules.count(), 1)
+		self.assertEqual(request_obj.new_schedules.first().id, new_schedule.id)
 		self.assertEqual(request_obj.status, Request.STATUS_PENDING)
 
-	def test_tutor_can_reschedule_extended_schedule(self):
-		self.schedule.status = Schedule.STATUS_EXTENDED
+	def test_tutor_can_reschedule_pending_schedule(self):
+		self.schedule.status = Schedule.STATUS_PENDING
 		self.schedule.save(update_fields=['status'])
 
 		self.client.force_authenticate(user=self.tutor)
@@ -690,6 +729,7 @@ class ScheduleExtensionFlowTests(APITestCase):
 			{
 				'start_datetime': next_start_datetime.isoformat(),
 				'end_datetime': next_end_datetime.isoformat(),
+				'description': 'Need to move due to tutor availability conflict',
 			},
 			format='json',
 		)
@@ -698,17 +738,19 @@ class ScheduleExtensionFlowTests(APITestCase):
 		self.assertIn('request_id', response.data)
 
 		self.schedule.refresh_from_db()
-		self.assertEqual(self.schedule.status, Schedule.STATUS_RESCHEDULED)
+		self.assertEqual(self.schedule.status, Schedule.STATUS_PENDING)
 
 		new_schedule = Schedule.objects.exclude(id=self.schedule.id).get()
 		self.assertEqual(new_schedule.status, Schedule.STATUS_PENDING)
 
 		request_obj = Request.objects.get(id=response.data['request_id'])
 		self.assertEqual(request_obj.old_schedule_id, self.schedule.id)
-		self.assertEqual(request_obj.new_schedule_id, new_schedule.id)
+		self.assertEqual(request_obj.request_type, Request.TYPE_RESCHEDULE)
+		self.assertEqual(request_obj.new_schedules.count(), 1)
+		self.assertEqual(request_obj.new_schedules.first().id, new_schedule.id)
 		self.assertEqual(request_obj.status, Request.STATUS_PENDING)
 
-	def test_admin_same_start_sets_schedule_extended(self):
+	def test_admin_same_start_creates_additional_schedule_sessions(self):
 		self.client.force_authenticate(user=self.admin)
 
 		response = self.client.patch(
@@ -724,9 +766,9 @@ class ScheduleExtensionFlowTests(APITestCase):
 		)
 
 		self.assertEqual(response.status_code, status.HTTP_200_OK)
-		self.assertEqual(response.data['id'], self.schedule.id)
-		self.assertEqual(response.data['status'], Schedule.STATUS_EXTENDED)
-		self.assertEqual(Schedule.objects.count(), 1)
+		self.assertNotEqual(response.data['id'], self.schedule.id)
+		self.assertEqual(response.data['status'], Schedule.STATUS_UPCOMING)
+		self.assertEqual(Schedule.objects.count(), 2)
 
 	def test_admin_different_start_keeps_reschedule_flow(self):
 		self.client.force_authenticate(user=self.admin)
@@ -745,6 +787,7 @@ class ScheduleExtensionFlowTests(APITestCase):
 			{
 				'start_datetime': next_start_datetime.isoformat(),
 				'end_datetime': next_end_datetime.isoformat(),
+				'description': 'Need to move due to tutor availability conflict',
 			},
 			format='json',
 		)
@@ -756,6 +799,100 @@ class ScheduleExtensionFlowTests(APITestCase):
 		self.schedule.refresh_from_db()
 		self.assertEqual(self.schedule.status, Schedule.STATUS_RESCHEDULED)
 		self.assertEqual(Schedule.objects.count(), 2)
+
+
+class ScheduleCancelRequestFlowTests(APITestCase):
+	def setUp(self):
+		self.admin = User.objects.create_user(
+			username='admin-cancel-request',
+			password='password123',
+			is_staff=True,
+		)
+		self.tutor = User.objects.create_user(
+			username='tutor-cancel-request',
+			password='password123',
+			is_staff=False,
+		)
+		self.student = Student.objects.create(first_name='Cancel', last_name='Student')
+
+		next_day = timezone.localdate() + timedelta(days=1)
+		self.schedule = Schedule.objects.create(
+			tutor=self.tutor,
+			student=self.student,
+			subject_topic='Physics',
+			description='Cancelable schedule',
+			start_datetime=timezone.make_aware(
+				datetime.combine(next_day, time(hour=13, minute=0)),
+				timezone.get_current_timezone(),
+			),
+			end_datetime=timezone.make_aware(
+				datetime.combine(next_day, time(hour=15, minute=0)),
+				timezone.get_current_timezone(),
+			),
+			status=Schedule.STATUS_UPCOMING,
+		)
+
+	def test_tutor_can_submit_cancel_request(self):
+		self.client.force_authenticate(user=self.tutor)
+
+		response = self.client.post(
+			reverse('schedules-request-cancel', args=[self.schedule.id]),
+			{'description': 'Student requested cancellation.'},
+			format='json',
+		)
+
+		self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+		request_obj = Request.objects.get(id=response.data['request_id'])
+		self.assertEqual(request_obj.request_type, Request.TYPE_CANCEL)
+		self.assertEqual(request_obj.description, 'Student requested cancellation.')
+		self.assertEqual(request_obj.old_schedule_id, self.schedule.id)
+		self.assertEqual(request_obj.status, Request.STATUS_PENDING)
+
+	def test_cancel_request_approve_sets_schedule_cancelled(self):
+		self.client.force_authenticate(user=self.tutor)
+		request_response = self.client.post(
+			reverse('schedules-request-cancel', args=[self.schedule.id]),
+			{'description': 'Unable to attend.'},
+			format='json',
+		)
+
+		self.client.force_authenticate(user=self.admin)
+		approve_response = self.client.post(reverse('requests-approve', args=[request_response.data['request_id']]), format='json')
+
+		self.assertEqual(approve_response.status_code, status.HTTP_200_OK)
+		self.schedule.refresh_from_db()
+		self.assertEqual(self.schedule.status, Schedule.STATUS_CANCELLED)
+
+	def test_cancel_request_reject_restores_upcoming(self):
+		self.client.force_authenticate(user=self.tutor)
+		request_response = self.client.post(
+			reverse('schedules-request-cancel', args=[self.schedule.id]),
+			{'description': 'Need cancellation due to emergency.'},
+			format='json',
+		)
+
+		self.client.force_authenticate(user=self.admin)
+		reject_response = self.client.post(reverse('requests-reject', args=[request_response.data['request_id']]), format='json')
+
+		self.assertEqual(reject_response.status_code, status.HTTP_200_OK)
+		self.schedule.refresh_from_db()
+		self.assertEqual(self.schedule.status, Schedule.STATUS_UPCOMING)
+
+	def test_tutor_cannot_submit_duplicate_pending_cancel_request(self):
+		self.client.force_authenticate(user=self.tutor)
+		self.client.post(
+			reverse('schedules-request-cancel', args=[self.schedule.id]),
+			{'description': 'First cancellation request.'},
+			format='json',
+		)
+
+		response = self.client.post(
+			reverse('schedules-request-cancel', args=[self.schedule.id]),
+			{'description': 'Second cancellation request.'},
+			format='json',
+		)
+
+		self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
 class ScheduleAutodoneFlowTests(APITestCase):
@@ -839,8 +976,8 @@ class ScheduleAutodoneFlowTests(APITestCase):
 		result_ids = {item['id'] for item in response.data['results']}
 		self.assertIn(schedule.id, result_ids)
 
-	def test_overdue_extended_without_checkin_sets_missed(self):
-		schedule = self._create_past_schedule(status=Schedule.STATUS_EXTENDED)
+	def test_overdue_pending_without_checkin_sets_missed(self):
+		schedule = self._create_past_schedule(status=Schedule.STATUS_PENDING)
 
 		self.client.force_authenticate(user=self.admin)
 		response = self.client.get(reverse('schedules-list'))
@@ -883,14 +1020,14 @@ class ScheduleStatusFilteringTests(APITestCase):
 			end_datetime=end_datetime,
 			status=Schedule.STATUS_UPCOMING,
 		)
-		self.extended_schedule = Schedule.objects.create(
+		self.pending_schedule = Schedule.objects.create(
 			tutor=self.tutor,
 			student=self.student,
-			subject_topic='Extended subject',
-			description='Extended schedule',
+			subject_topic='Pending subject',
+			description='Pending schedule',
 			start_datetime=start_datetime + timedelta(hours=2),
 			end_datetime=end_datetime + timedelta(hours=2),
-			status=Schedule.STATUS_EXTENDED,
+			status=Schedule.STATUS_PENDING,
 		)
 		self.done_schedule = Schedule.objects.create(
 			tutor=self.tutor,
@@ -907,13 +1044,13 @@ class ScheduleStatusFilteringTests(APITestCase):
 
 		response = self.client.get(
 			reverse('schedules-list'),
-			{'status': [Schedule.STATUS_UPCOMING, Schedule.STATUS_EXTENDED]},
+			{'status': [Schedule.STATUS_UPCOMING, Schedule.STATUS_PENDING]},
 		)
 
 		self.assertEqual(response.status_code, status.HTTP_200_OK)
 		result_ids = {item['id'] for item in response.data['results']}
 		self.assertIn(self.upcoming_schedule.id, result_ids)
-		self.assertIn(self.extended_schedule.id, result_ids)
+		self.assertIn(self.pending_schedule.id, result_ids)
 		self.assertNotIn(self.done_schedule.id, result_ids)
 
 
@@ -951,8 +1088,18 @@ class RequestStatusFilteringTests(APITestCase):
 			status=Schedule.STATUS_UPCOMING,
 		)
 
-		self.pending_request = Request.objects.create(old_schedule=schedule, status=Request.STATUS_PENDING)
-		self.resolved_request = Request.objects.create(old_schedule=schedule, status=Request.STATUS_RESOLVED)
+		self.pending_request = Request.objects.create(
+			old_schedule=schedule,
+			request_type=Request.TYPE_CANCEL,
+			description='Pending request filter fixture',
+			status=Request.STATUS_PENDING,
+		)
+		self.resolved_request = Request.objects.create(
+			old_schedule=schedule,
+			request_type=Request.TYPE_CANCEL,
+			description='Resolved request filter fixture',
+			status=Request.STATUS_RESOLVED,
+		)
 
 	def test_status_filter_accepts_comma_separated_values(self):
 		self.client.force_authenticate(user=self.admin)

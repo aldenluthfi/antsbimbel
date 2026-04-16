@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Textarea } from "@/components/ui/textarea"
 import {
   attendanceApi,
   type ApiUser,
@@ -77,7 +78,7 @@ export function SchedulesSection({
   canManage: boolean
   tutorId?: number
 }) {
-  const TUTOR_RESCHEDULABLE_STATUSES: Schedule["status"][] = ["upcoming", "extended"]
+  const TUTOR_RESCHEDULABLE_STATUSES: Schedule["status"][] = ["upcoming", "pending"]
   const [filters, setFilters] = useState<DateFilters>(
     tutorId ? { ...DEFAULT_FILTERS, tutorId: String(tutorId) } : DEFAULT_FILTERS
   )
@@ -87,7 +88,7 @@ export function SchedulesSection({
   const [students, setStudents] = useState<Student[]>([])
   const [schedules, setSchedules] = useState<Schedule[]>([])
   const [calendarSchedules, setCalendarSchedules] = useState<Schedule[]>([])
-  const [statusFilter, setStatusFilter] = useState<ScheduleStatusFilter>(["extended", "upcoming"])
+  const [statusFilter, setStatusFilter] = useState<ScheduleStatusFilter>(["pending", "upcoming"])
   const [sortBy, setSortBy] = useState<ScheduleSortBy>("start_datetime")
   const [sortOrder, setSortOrder] = useState<SortOrder>("asc")
   const [calendarMode, setCalendarMode] = useState<CalendarMode>("month")
@@ -156,7 +157,11 @@ export function SchedulesSection({
   const [rescheduleTarget, setRescheduleTarget] = useState<Schedule | null>(null)
   const [rescheduleStartDatetime, setRescheduleStartDatetime] = useState("")
   const [rescheduleEndDatetime, setRescheduleEndDatetime] = useState("")
+  const [rescheduleDescription, setRescheduleDescription] = useState("")
   const [isSubmittingReschedule, setIsSubmittingReschedule] = useState(false)
+  const [cancelRequestTarget, setCancelRequestTarget] = useState<Schedule | null>(null)
+  const [cancelRequestDescription, setCancelRequestDescription] = useState("")
+  const [isSubmittingCancelRequest, setIsSubmittingCancelRequest] = useState(false)
   const [deleteTargetSchedule, setDeleteTargetSchedule] = useState<Schedule | null>(null)
   const [isDeletingSchedule, setIsDeletingSchedule] = useState(false)
   const [isTutorRequestOpen, setIsTutorRequestOpen] = useState(false)
@@ -332,12 +337,24 @@ export function SchedulesSection({
     setRescheduleTarget(schedule)
     setRescheduleStartDatetime(schedule.start_datetime)
     setRescheduleEndDatetime(schedule.end_datetime)
+    setRescheduleDescription("")
   }
 
   const closeTutorReschedule = () => {
     setRescheduleTarget(null)
     setRescheduleStartDatetime("")
     setRescheduleEndDatetime("")
+    setRescheduleDescription("")
+  }
+
+  const openTutorCancelRequest = (schedule: Schedule) => {
+    setCancelRequestTarget(schedule)
+    setCancelRequestDescription("")
+  }
+
+  const closeTutorCancelRequest = () => {
+    setCancelRequestTarget(null)
+    setCancelRequestDescription("")
   }
 
   const openTutorRequest = () => {
@@ -410,6 +427,11 @@ export function SchedulesSection({
       return
     }
 
+    if (!rescheduleDescription.trim()) {
+      setError("Please provide a request description.")
+      return
+    }
+
     setError("")
     setIsSubmittingReschedule(true)
 
@@ -420,10 +442,11 @@ export function SchedulesSection({
         {
           start_datetime: rescheduleStartDatetime,
           end_datetime: rescheduleEndDatetime,
+          description: rescheduleDescription.trim(),
         },
         token
       )
-      toast.success(isExtensionRequest ? "Extension request submitted" : "Reschedule request submitted")
+      toast.success(isExtensionRequest ? "Extension request submitted (split into 2-hour sessions)" : "Reschedule request submitted")
       closeTutorReschedule()
       await fetchSchedules()
     } catch (submitError) {
@@ -467,6 +490,35 @@ export function SchedulesSection({
       setError(parseApiError(submitError))
     } finally {
       setIsSubmittingTutorRequest(false)
+    }
+  }
+
+  const submitTutorCancelRequest = async () => {
+    if (!cancelRequestTarget) {
+      return
+    }
+
+    if (!cancelRequestDescription.trim()) {
+      setError("Please provide cancellation reason.")
+      return
+    }
+
+    setError("")
+    setIsSubmittingCancelRequest(true)
+
+    try {
+      await schedulesApi.requestCancel(
+        cancelRequestTarget.id,
+        { description: cancelRequestDescription.trim() },
+        token
+      )
+      toast.success("Cancellation request submitted")
+      closeTutorCancelRequest()
+      await fetchSchedules()
+    } catch (submitError) {
+      setError(parseApiError(submitError))
+    } finally {
+      setIsSubmittingCancelRequest(false)
     }
   }
 
@@ -674,7 +726,7 @@ export function SchedulesSection({
     }
 
     if (!schedule.can_check_out) {
-      return "Check out only available after check in and near the end time"
+      return "Check out is not available for this schedule"
     }
 
     return null
@@ -844,7 +896,7 @@ export function SchedulesSection({
             className="w-full sm:w-auto"
             onClick={() => {
               setFilters(tutorId ? { ...DEFAULT_FILTERS, tutorId: String(tutorId) } : DEFAULT_FILTERS)
-              setStatusFilter(["extended", "upcoming"])
+              setStatusFilter(["pending", "upcoming"])
               setSortBy("start_datetime")
               setSortOrder("asc")
               setPage(1)
@@ -1245,9 +1297,14 @@ export function SchedulesSection({
                         See details
                       </Button>
                       {TUTOR_RESCHEDULABLE_STATUSES.includes(schedule.status) ? (
-                        <Button size="sm" variant="outline" onClick={() => openTutorReschedule(schedule)}>
-                          Reschedule
-                        </Button>
+                        <>
+                          <Button size="sm" variant="outline" onClick={() => openTutorReschedule(schedule)}>
+                            Reschedule
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => openTutorCancelRequest(schedule)}>
+                            Request cancel
+                          </Button>
+                        </>
                       ) : null}
                     </div>
                   </td>
@@ -1301,11 +1358,13 @@ export function SchedulesSection({
 
               <label className="flex flex-col space-y-2 text-sm">
                 <span className="font-medium">Description</span>
-                <textarea
-                  value={tutorRequestForm.description}
-                  onChange={(event) => setTutorRequestForm({ ...tutorRequestForm, description: event.target.value })}
-                  className="min-h-20 w-full rounded-lg border border-border px-3 py-2 text-sm"
-                />
+                  <Textarea
+                    required
+                    value={tutorRequestForm.description}
+                    onChange={(event) => setTutorRequestForm({ ...tutorRequestForm, description: event.target.value })}
+                    className="min-h-20"
+                  />
+
               </label>
 
               <label className="flex flex-col space-y-2 text-sm">
@@ -1416,10 +1475,10 @@ export function SchedulesSection({
                 </label>
                 <label className="flex flex-col space-y-2 text-sm">
                   <span className="font-medium">Description</span>
-                  <textarea
+                  <Textarea
                     value={formState.description}
                     onChange={(event) => setFormState({ ...formState, description: event.target.value })}
-                    className="min-h-20 w-full rounded-lg border border-border px-3 py-2 text-sm"
+                    className="min-h-20"
                   />
                 </label>
                 <label className="flex flex-col space-y-2 text-sm">
@@ -1512,7 +1571,7 @@ export function SchedulesSection({
             <DialogHeader>
               <DialogTitle>Reschedule</DialogTitle>
               <DialogDescription>
-                Only the schedule date and time can be changed. If the start time stays the same, this becomes an extension request.
+                Only the schedule date and time can be changed. If the start time stays the same, this becomes extension requests split into 2-hour sessions.
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={submitTutorReschedule} className="grid gap-3">
@@ -1554,6 +1613,19 @@ export function SchedulesSection({
                 />
               </label>
 
+              <label className="flex flex-col space-y-2 text-sm">
+                <span className="font-medium">
+                  Request description <span className="text-destructive">*</span>
+                </span>
+                <Textarea
+                  required
+                  value={rescheduleDescription}
+                  onChange={(event) => setRescheduleDescription(event.target.value)}
+                  placeholder="Provide reason for extension/reschedule"
+                  className="min-h-20"
+                />
+              </label>
+
               <DialogFooter>
                 <Button type="submit" disabled={isSubmittingReschedule}>
                   {isSubmittingReschedule ? "Submitting..." : "Submit reschedule"}
@@ -1563,6 +1635,56 @@ export function SchedulesSection({
                 </Button>
               </DialogFooter>
             </form>
+          </DialogContent>
+        </Dialog>
+      ) : null}
+
+      {!canManage && cancelRequestTarget ? (
+        <Dialog open onOpenChange={(open) => (!open ? closeTutorCancelRequest() : null)}>
+          <DialogContent className="max-h-[90svh] w-[95vw] max-w-xl overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Request cancellation</DialogTitle>
+              <DialogDescription>
+                Submit a cancellation request for this schedule. Admin approval is required.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="grid gap-3">
+              <label className="flex flex-col space-y-2 text-sm">
+                <span className="font-medium">Schedule</span>
+                <Input
+                  value={
+                    cancelRequestTarget
+                      ? formatDateTimeRange(cancelRequestTarget.start_datetime, cancelRequestTarget.end_datetime)
+                      : ""
+                  }
+                  disabled
+                  className="h-9 bg-muted"
+                />
+              </label>
+
+              <label className="flex flex-col space-y-2 text-sm">
+                <span className="font-medium">
+                  Cancellation reason <span className="text-destructive">*</span>
+                </span>
+                <Textarea
+                  required
+                  value={cancelRequestDescription}
+                  onChange={(event) => setCancelRequestDescription(event.target.value)}
+                  placeholder="Explain why this schedule should be cancelled"
+                  className="min-h-24"
+                />
+              </label>
+
+              <DialogFooter>
+                <Button type="button" onClick={() => void submitTutorCancelRequest()} disabled={isSubmittingCancelRequest}>
+                  {isSubmittingCancelRequest ? "Submitting..." : "Submit cancellation request"}
+                </Button>
+                <Button type="button" variant="outline" onClick={closeTutorCancelRequest}>
+                  Cancel
+                </Button>
+              </DialogFooter>
+            </div>
           </DialogContent>
         </Dialog>
       ) : null}
@@ -1652,11 +1774,11 @@ export function SchedulesSection({
                   </label>
                   <label className="flex flex-col space-y-2 text-sm">
                     <span className="font-medium">Description</span>
-                    <textarea
+                    <Textarea
                       value={checkInDescription}
                       onChange={(event) => setCheckInDescription(event.target.value)}
                       placeholder="Short check in notes"
-                      className="min-h-20 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                      className="min-h-20"
                     />
                   </label>
                 </section>

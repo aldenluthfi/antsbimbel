@@ -75,8 +75,8 @@ class CheckInSerializer(serializers.ModelSerializer):
         if request and is_tutor(request.user) and schedule.tutor.id != request.user.id:
             raise serializers.ValidationError('Tutors can only link check-ins to their own schedules.')
 
-        if schedule.status not in {Schedule.STATUS_UPCOMING, Schedule.STATUS_EXTENDED, Schedule.STATUS_PENDING}:
-            raise serializers.ValidationError('Check-in can only be linked to upcoming, extended, or pending schedules.')
+        if schedule.status not in {Schedule.STATUS_UPCOMING, Schedule.STATUS_PENDING}:
+            raise serializers.ValidationError('Check-in can only be linked to upcoming or pending schedules.')
 
         return schedule
 
@@ -114,35 +114,6 @@ class CheckInSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     {'check_in_time': 'Tutors can only check in at most 15 minutes before the schedule time.'}
                 )
-
-        if attrs.get('check_out_photo') is not None or attrs.get('check_out_time') is not None:
-            resolved_schedule = schedule
-            if not resolved_schedule and self.instance is not None:
-                try:
-                    resolved_schedule = self.instance.schedule
-                except Schedule.DoesNotExist:
-                    resolved_schedule = None
-
-            if resolved_schedule:
-                check_out_time = attrs.get('check_out_time') or timezone.now()
-                if timezone.is_naive(check_out_time):
-                    check_out_time = timezone.make_aware(check_out_time, timezone.get_current_timezone())
-
-                end_datetime = resolved_schedule.end_datetime
-                if timezone.is_naive(end_datetime):
-                    end_datetime = timezone.make_aware(end_datetime, timezone.get_current_timezone())
-
-                earliest_check_out = end_datetime - timedelta(minutes=15)
-                latest_check_out = end_datetime + timedelta(minutes=30)
-                if check_out_time < earliest_check_out or check_out_time > latest_check_out:
-                    raise serializers.ValidationError(
-                        {
-                            'check_out_time': (
-                                'Tutors can only check out from 15 minutes before '
-                                'until 30 minutes after the schedule end time.'
-                            )
-                        }
-                    )
 
         return attrs
 

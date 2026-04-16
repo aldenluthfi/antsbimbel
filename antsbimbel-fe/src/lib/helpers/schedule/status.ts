@@ -49,13 +49,6 @@ export function getScheduleStatusPresentation(schedule: Schedule): {
     }
   }
 
-  if (schedule.status === "extended") {
-    return {
-      label: "Extended",
-      className: "bg-teal-100 text-teal-700 border-teal-200 hover:bg-teal-200 hover:text-teal-900 hover:border-teal-300",
-    }
-  }
-
   if (schedule.status === "done") {
     return {
       label: "Done",

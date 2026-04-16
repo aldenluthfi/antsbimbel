@@ -80,11 +80,6 @@ export function DateFilterPanel({
         className: "bg-amber-100 text-amber-700 border-amber-200 hover:bg-amber-200 hover:text-amber-900 hover:border-amber-300",
       },
       {
-        value: "extended",
-        label: "Extended",
-        className: "bg-teal-100 text-teal-700 border-teal-200 hover:bg-teal-200 hover:text-teal-900 hover:border-teal-300",
-      },
-      {
         value: "pending",
         label: "Pending",
         className: "bg-orange-100 text-orange-700 border-orange-200 hover:bg-orange-200 hover:text-orange-900 hover:border-orange-300",

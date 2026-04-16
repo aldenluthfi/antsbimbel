@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from django.db.models import Q
+from django.db.models import Max, Min, Q
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 from django.utils.dateparse import parse_date
@@ -23,9 +23,10 @@ class RequestViewSet(viewsets.ReadOnlyModelViewSet):
         'old_schedule',
         'old_schedule__tutor',
         'old_schedule__student',
-        'new_schedule',
-        'new_schedule__tutor',
-        'new_schedule__student',
+    ).prefetch_related(
+        'new_schedules',
+        'new_schedules__tutor',
+        'new_schedules__student',
     ).all().order_by('-created_at')
     serializer_class = RequestSerializer
     permission_classes = [IsAuthenticated, RequestPermission]
@@ -60,10 +61,10 @@ class RequestViewSet(viewsets.ReadOnlyModelViewSet):
         start_datetime = cls._local_day_start(start_date)
         next_day_datetime = cls._local_day_start(end_date + timedelta(days=1))
         return (
-            Q(new_schedule__start_datetime__gte=start_datetime)
-            & Q(new_schedule__start_datetime__lt=next_day_datetime)
+            Q(new_schedules__start_datetime__gte=start_datetime)
+            & Q(new_schedules__start_datetime__lt=next_day_datetime)
         ) | (
-            Q(new_schedule__isnull=True)
+            Q(new_schedules__isnull=True)
             & Q(old_schedule__start_datetime__gte=start_datetime)
             & Q(old_schedule__start_datetime__lt=next_day_datetime)
         )
@@ -71,8 +72,8 @@ class RequestViewSet(viewsets.ReadOnlyModelViewSet):
     @staticmethod
     def _with_effective_schedule_annotations(queryset):
         return queryset.annotate(
-            effective_start_datetime=Coalesce('new_schedule__start_datetime', 'old_schedule__start_datetime'),
-            effective_end_datetime=Coalesce('new_schedule__end_datetime', 'old_schedule__end_datetime'),
+            effective_start_datetime=Coalesce(Min('new_schedules__start_datetime'), 'old_schedule__start_datetime'),
+            effective_end_datetime=Coalesce(Max('new_schedules__end_datetime'), 'old_schedule__end_datetime'),
         )
 
     def _resolve_ordering(self, sort_by, sort_order):
@@ -93,6 +94,19 @@ class RequestViewSet(viewsets.ReadOnlyModelViewSet):
 
         field_name = ordering_fields[sort_by]
         return field_name if sort_order == 'asc' else f'-{field_name}'
+
+    @staticmethod
+    def _validate_single_tutor_request(old_schedule, new_schedules):
+        tutor_ids = set()
+
+        if old_schedule is not None:
+            tutor_ids.add(old_schedule.tutor_id)
+
+        for new_schedule in new_schedules:
+            tutor_ids.add(new_schedule.tutor_id)
+
+        if len(tutor_ids) > 1:
+            raise ValidationError({'detail': 'All schedules in a request must be assigned to the same tutor.'})
 
     @extend_schema(parameters=REQUEST_LIST_QUERY_PARAMETERS)
     def list(self, request, *args, **kwargs):
@@ -184,7 +198,7 @@ class RequestViewSet(viewsets.ReadOnlyModelViewSet):
             return queryset.none()
 
         if is_tutor(user):
-            queryset = queryset.filter(Q(new_schedule__tutor=user) | Q(old_schedule__tutor=user))
+            queryset = queryset.filter(Q(new_schedules__tutor=user) | Q(old_schedule__tutor=user))
 
         tutor = self.request.query_params.get('tutor')
         student = self.request.query_params.get('student')
@@ -193,10 +207,10 @@ class RequestViewSet(viewsets.ReadOnlyModelViewSet):
         raw_status_values = self.request.query_params.getlist('status')
 
         if tutor:
-            queryset = queryset.filter(Q(new_schedule__tutor=tutor) | Q(old_schedule__tutor=tutor))
+            queryset = queryset.filter(Q(new_schedules__tutor=tutor) | Q(old_schedule__tutor=tutor))
 
         if student:
-            queryset = queryset.filter(Q(new_schedule__student=student) | Q(old_schedule__student=student))
+            queryset = queryset.filter(Q(new_schedules__student=student) | Q(old_schedule__student=student))
 
         if start_date_param:
             start_date = parse_date(start_date_param)
@@ -204,8 +218,8 @@ class RequestViewSet(viewsets.ReadOnlyModelViewSet):
                 raise ValidationError({'start_date': 'Invalid date format. Use YYYY-MM-DD or ISO datetime.'})
             day_start = self._local_day_start(start_date)
             queryset = queryset.filter(
-                Q(new_schedule__start_datetime__gte=day_start)
-                | (Q(new_schedule__isnull=True) & Q(old_schedule__start_datetime__gte=day_start))
+                Q(new_schedules__start_datetime__gte=day_start)
+                | (Q(new_schedules__isnull=True) & Q(old_schedule__start_datetime__gte=day_start))
             )
 
         if end_date_param:
@@ -214,8 +228,8 @@ class RequestViewSet(viewsets.ReadOnlyModelViewSet):
                 raise ValidationError({'end_date': 'Invalid date format. Use YYYY-MM-DD or ISO datetime.'})
             next_day_start = self._local_day_start(end_date + timedelta(days=1))
             queryset = queryset.filter(
-                Q(new_schedule__start_datetime__lt=next_day_start)
-                | (Q(new_schedule__isnull=True) & Q(old_schedule__start_datetime__lt=next_day_start))
+                Q(new_schedules__start_datetime__lt=next_day_start)
+                | (Q(new_schedules__isnull=True) & Q(old_schedule__start_datetime__lt=next_day_start))
             )
 
         status_values = self._parse_status_filters(raw_status_values)
@@ -232,7 +246,7 @@ class RequestViewSet(viewsets.ReadOnlyModelViewSet):
                 )
             queryset = queryset.filter(status__in=status_values)
 
-        return queryset
+        return queryset.distinct()
 
     @extend_schema(
         request=None,
@@ -254,42 +268,47 @@ class RequestViewSet(viewsets.ReadOnlyModelViewSet):
             return Response({'detail': 'Only admins can approve requests.'}, status=status.HTTP_403_FORBIDDEN)
 
         request_obj = self.get_object()
-        new_schedule = request_obj.new_schedule
+        new_schedules = list(request_obj.new_schedules.all())
         old_schedule = request_obj.old_schedule
+        self._validate_single_tutor_request(old_schedule, new_schedules)
 
         if request_obj.status != Request.STATUS_PENDING:
             raise ValidationError({'detail': 'Only pending requests can be approved.'})
 
-        if request_obj.extension is not None:
+        if request_obj.request_type == Request.TYPE_CANCEL:
             if not old_schedule:
-                raise ValidationError({'detail': 'Extension requests require an old schedule.'})
+                raise ValidationError({'detail': 'Cancel requests require an old schedule.'})
 
-            if old_schedule.status != Schedule.STATUS_PENDING:
-                raise ValidationError({'detail': 'Only pending requests can be approved.'})
-
-            old_schedule.end_datetime = old_schedule.end_datetime + timedelta(hours=request_obj.extension)
-            old_schedule.status = Schedule.STATUS_EXTENDED
-            old_schedule.save(update_fields=['end_datetime', 'status'])
+            old_schedule.status = Schedule.STATUS_CANCELLED
+            old_schedule.save(update_fields=['status'])
             request_obj.status = Request.STATUS_RESOLVED
             request_obj.save(update_fields=['status', 'updated_at'])
             return Response(self.get_serializer(request_obj).data, status=status.HTTP_200_OK)
 
-        if not new_schedule:
-            raise ValidationError({'detail': 'Reschedule request does not have a new schedule.'})
+        if request_obj.request_type in {Request.TYPE_EXTENSION, Request.TYPE_RESCHEDULE, Request.TYPE_NEW_SCHEDULE}:
+            if not new_schedules:
+                raise ValidationError({'detail': 'Request does not have new schedules.'})
 
-        if new_schedule.status != Schedule.STATUS_PENDING:
-            raise ValidationError({'detail': 'Only pending requests can be approved.'})
+            pending_new_schedules = [schedule for schedule in new_schedules if schedule.status == Schedule.STATUS_PENDING]
+            if len(pending_new_schedules) != len(new_schedules):
+                raise ValidationError({'detail': 'Only pending requests can be approved.'})
 
-        if old_schedule and old_schedule.status == Schedule.STATUS_PENDING:
-            old_schedule.status = Schedule.STATUS_RESCHEDULED
-            old_schedule.save(update_fields=['status'])
+            for schedule in new_schedules:
+                schedule.status = Schedule.STATUS_UPCOMING
+                schedule.save(update_fields=['status'])
 
-        new_schedule.status = Schedule.STATUS_UPCOMING
-        new_schedule.save(update_fields=['status'])
-        request_obj.status = Request.STATUS_RESOLVED
-        request_obj.save(update_fields=['status', 'updated_at'])
+            if old_schedule and old_schedule.status == Schedule.STATUS_PENDING:
+                if request_obj.request_type == Request.TYPE_RESCHEDULE:
+                    old_schedule.status = Schedule.STATUS_RESCHEDULED
+                else:
+                    old_schedule.status = Schedule.STATUS_UPCOMING
+                old_schedule.save(update_fields=['status'])
 
-        return Response(self.get_serializer(request_obj).data, status=status.HTTP_200_OK)
+            request_obj.status = Request.STATUS_RESOLVED
+            request_obj.save(update_fields=['status', 'updated_at'])
+            return Response(self.get_serializer(request_obj).data, status=status.HTTP_200_OK)
+
+        raise ValidationError({'detail': 'Unsupported request type.'})
 
     @extend_schema(
         request=None,
@@ -311,31 +330,37 @@ class RequestViewSet(viewsets.ReadOnlyModelViewSet):
             return Response({'detail': 'Only admins can reject requests.'}, status=status.HTTP_403_FORBIDDEN)
 
         request_obj = self.get_object()
-        new_schedule = request_obj.new_schedule
+        new_schedules = list(request_obj.new_schedules.all())
         old_schedule = request_obj.old_schedule
+        self._validate_single_tutor_request(old_schedule, new_schedules)
 
         if request_obj.status != Request.STATUS_PENDING:
             raise ValidationError({'detail': 'Only pending requests can be rejected.'})
 
-        if request_obj.extension is not None:
+        if request_obj.request_type == Request.TYPE_CANCEL:
             if not old_schedule:
-                raise ValidationError({'detail': 'Extension requests require an old schedule.'})
+                raise ValidationError({'detail': 'Cancel requests require an old schedule.'})
 
-            old_schedule.status = Schedule.STATUS_UPCOMING
-            old_schedule.save(update_fields=['status'])
+            if old_schedule.status == Schedule.STATUS_PENDING:
+                old_schedule.status = Schedule.STATUS_UPCOMING
+                old_schedule.save(update_fields=['status'])
+
             request_obj.status = Request.STATUS_RESOLVED
             request_obj.save(update_fields=['status', 'updated_at'])
             return Response(self.get_serializer(request_obj).data, status=status.HTTP_200_OK)
 
-        if not new_schedule:
-            raise ValidationError({'detail': 'Reschedule request does not have a new schedule.'})
+        if request_obj.request_type in {Request.TYPE_EXTENSION, Request.TYPE_RESCHEDULE, Request.TYPE_NEW_SCHEDULE}:
+            for schedule in new_schedules:
+                if schedule.status == Schedule.STATUS_PENDING:
+                    schedule.status = Schedule.STATUS_REJECTED
+                    schedule.save(update_fields=['status'])
 
-        if new_schedule.status != Schedule.STATUS_PENDING:
-            raise ValidationError({'detail': 'Only pending requests can be rejected.'})
+            if old_schedule and old_schedule.status == Schedule.STATUS_PENDING:
+                old_schedule.status = Schedule.STATUS_UPCOMING
+                old_schedule.save(update_fields=['status'])
 
-        new_schedule.status = Schedule.STATUS_REJECTED
-        new_schedule.save(update_fields=['status'])
-        request_obj.status = Request.STATUS_RESOLVED
-        request_obj.save(update_fields=['status', 'updated_at'])
+            request_obj.status = Request.STATUS_RESOLVED
+            request_obj.save(update_fields=['status', 'updated_at'])
+            return Response(self.get_serializer(request_obj).data, status=status.HTTP_200_OK)
 
-        return Response(self.get_serializer(request_obj).data, status=status.HTTP_200_OK)
+        raise ValidationError({'detail': 'Unsupported request type.'})

@@ -72,7 +72,6 @@ class Schedule(models.Model):
 	STATUS_MISSED = 'missed'
 	STATUS_CANCELLED = 'cancelled'
 	STATUS_RESCHEDULED = 'rescheduled'
-	STATUS_EXTENDED = 'extended'
 	STATUS_PENDING = 'pending'
 	STATUS_REJECTED = 'rejected'
 
@@ -83,7 +82,6 @@ class Schedule(models.Model):
 		(STATUS_MISSED, 'Missed'),
 		(STATUS_CANCELLED, 'Cancelled'),
 		(STATUS_RESCHEDULED, 'Rescheduled'),
-		(STATUS_EXTENDED, 'Extended'),
 		(STATUS_PENDING, 'Pending'),
 		(STATUS_REJECTED, 'Rejected'),
 	)
@@ -128,7 +126,7 @@ class Schedule(models.Model):
 
 	@property
 	def can_check_in(self):
-		if self.status not in {self.STATUS_UPCOMING, self.STATUS_EXTENDED, self.STATUS_PENDING}:
+		if self.status not in {self.STATUS_UPCOMING, self.STATUS_PENDING}:
 			return False
 
 		check_in_open_time = self.start_datetime - timezone.timedelta(minutes=15)
@@ -136,7 +134,7 @@ class Schedule(models.Model):
 
 	@property
 	def can_check_out(self):
-		if self.status not in {self.STATUS_UPCOMING, self.STATUS_EXTENDED, self.STATUS_PENDING}:
+		if self.status not in {self.STATUS_UPCOMING, self.STATUS_PENDING}:
 			return False
 
 		if not self.check_in_id:
@@ -146,19 +144,27 @@ class Schedule(models.Model):
 		if check_in and getattr(check_in, 'check_out', None):
 			return False
 
-		now = timezone.now()
-		check_out_open_time = self.end_datetime - timezone.timedelta(minutes=15)
-		check_out_close_time = self.end_datetime + timezone.timedelta(minutes=30)
-		return check_out_open_time <= now <= check_out_close_time
+		return True
 
 
 class Request(models.Model):
 	STATUS_PENDING = 'pending'
 	STATUS_RESOLVED = 'resolved'
 
+	TYPE_NEW_SCHEDULE = 'new_schedule'
+	TYPE_RESCHEDULE = 'reschedule'
+	TYPE_EXTENSION = 'extension'
+	TYPE_CANCEL = 'cancel'
+
 	STATUS_CHOICES = (
 		(STATUS_PENDING, 'Pending'),
 		(STATUS_RESOLVED, 'Resolved'),
+	)
+	TYPE_CHOICES = (
+		(TYPE_NEW_SCHEDULE, 'New schedule'),
+		(TYPE_RESCHEDULE, 'Reschedule'),
+		(TYPE_EXTENSION, 'Extension'),
+		(TYPE_CANCEL, 'Cancel'),
 	)
 
 	old_schedule = models.ForeignKey(
@@ -168,13 +174,13 @@ class Request(models.Model):
 		null=True,
 		blank=True,
 	)
-	new_schedule = models.ForeignKey(
+	new_schedules = models.ManyToManyField(
 		Schedule,
-		on_delete=models.PROTECT,
 		related_name='new_schedule_requests',
-		null=True,
 		blank=True,
 	)
+	request_type = models.CharField(max_length=16, choices=TYPE_CHOICES, default=TYPE_NEW_SCHEDULE)
+	description = models.TextField()
 	extension = models.PositiveSmallIntegerField(null=True, blank=True)
 	status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING)
 	created_at = models.DateTimeField(auto_now_add=True)
@@ -184,9 +190,9 @@ class Request(models.Model):
 		ordering = ('-created_at', 'id')
 
 	def __str__(self):
-		if self.new_schedule_id:
-			return f'Request #{self.pk} - New schedule {self.new_schedule_id}'
-		return f'Request #{self.pk} - Old schedule {self.old_schedule_id}'
+		if self.old_schedule_id:
+			return f'Request #{self.pk} - {self.request_type} from schedule {self.old_schedule_id}'
+		return f'Request #{self.pk} - {self.request_type}'
 
 
 class EmailBlastRecord(models.Model):

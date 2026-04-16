@@ -21,7 +21,7 @@ export type Schedule = {
   description: string
   start_datetime: string
   end_datetime: string
-  status: "upcoming" | "done" | "missed" | "cancelled" | "rescheduled" | "extended" | "pending" | "rejected"
+  status: "upcoming" | "done" | "missed" | "cancelled" | "rescheduled" | "pending" | "rejected"
   check_in_id: number | null
   check_out_id: number | null
   check_in_detail: {
@@ -140,14 +140,18 @@ export type ScheduleCalendarPaginationResponse = {
   results: Schedule[]
 }
 
+export type RequestType = "new_schedule" | "reschedule" | "extension" | "cancel"
+
 export type ScheduleRequest = {
   id: number
+  request_type: RequestType
+  description: string
   status: RequestStatus
   old_schedule: number | null
-  new_schedule: number | null
+  new_schedules: number[]
   extension: number | null
   old_schedule_detail: Schedule | null
-  new_schedule_detail: Schedule | null
+  new_schedule_details: Schedule[]
   created_at: string
   updated_at: string
 }
@@ -200,6 +204,10 @@ export type TutorScheduleRequestPayload = {
   description: string
   start_datetime: string
   end_datetime: string
+}
+
+export type TutorCancelRequestPayload = {
+  description: string
 }
 
 export type MonthlyScheduleReportResponse = {
@@ -555,8 +563,18 @@ export const schedulesApi = {
     }, token)
   },
   requestSchedule(payload: TutorScheduleRequestPayload, token: string) {
-    return apiRequest<{ request_id: number; schedule: Schedule }>(
+    return apiRequest<{ request_id: number; request_count: number; schedule: Schedule }>(
       "/schedules/request/",
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+      token
+    )
+  },
+  requestCancel(id: number, payload: TutorCancelRequestPayload, token: string) {
+    return apiRequest<{ request_id: number; schedule_id: number }>(
+      `/schedules/${id}/request-cancel/`,
       {
         method: "POST",
         body: JSON.stringify(payload),

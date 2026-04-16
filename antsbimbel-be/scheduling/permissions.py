@@ -76,7 +76,7 @@ class SchedulePermission(BasePermission):
             if request.method in SAFE_METHODS or request.method == 'PATCH':
                 return True
 
-            return request.method == 'POST' and getattr(view, 'action', None) == 'request_schedule'
+            return request.method == 'POST' and getattr(view, 'action', None) in {'request_schedule', 'request_cancel'}
 
         return False
 
@@ -87,7 +87,10 @@ class SchedulePermission(BasePermission):
             return True
 
         if is_tutor(user):
-            return obj.tutor.id == user.id and (request.method in SAFE_METHODS or request.method == 'PATCH')
+            if request.method in SAFE_METHODS or request.method == 'PATCH':
+                return obj.tutor.id == user.id
+
+            return request.method == 'POST' and getattr(view, 'action', None) == 'request_cancel' and obj.tutor.id == user.id
 
         return False
 
@@ -116,7 +119,7 @@ class RequestPermission(BasePermission):
             return True
 
         if is_tutor(user):
-            tutor_schedule = obj.new_schedule or obj.old_schedule
+            tutor_schedule = obj.old_schedule or obj.new_schedules.first()
             return request.method in SAFE_METHODS and bool(tutor_schedule and tutor_schedule.tutor_id == user.id)
 
         return False
