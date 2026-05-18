@@ -11,9 +11,6 @@ docker compose up -d
 echo "==> Running pending migrations..."
 docker compose exec backend python manage.py migrate --noinput
 
-echo "==> Collecting static files..."
-docker compose exec backend python manage.py collectstatic --noinput
-
-echo ""
 echo "==> Done! Containers are up to date."
 docker compose ps
+
