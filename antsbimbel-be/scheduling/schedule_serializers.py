@@ -171,6 +171,7 @@ class ScheduleSerializer(serializers.ModelSerializer):
             'id': check_out.id,
             'time': check_out.check_out_time,
             'photo': self._build_media_url(check_out.check_out_photo),
+            'description': getattr(check_out, 'description', '') or '',
         }
 
     @extend_schema_field(serializers.BooleanField())

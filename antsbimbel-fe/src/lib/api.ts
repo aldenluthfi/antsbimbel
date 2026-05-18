@@ -35,6 +35,7 @@ export type Schedule = {
     id: number
     time: string
     photo: string | null
+    description: string
   } | null
   can_check_in: boolean
   can_check_out: boolean

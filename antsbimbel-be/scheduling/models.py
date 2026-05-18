@@ -54,6 +54,7 @@ class CheckOut(models.Model):
 	)
 	check_out_time = models.DateTimeField(default=timezone.now)
 	check_out_photo = models.URLField(max_length=2048)
+	description = models.TextField(blank=True, default='')
 	total_shift_time = models.DurationField(blank=True, null=True)
 
 	def save(self, *args, **kwargs):

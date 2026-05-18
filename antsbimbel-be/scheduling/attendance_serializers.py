@@ -29,6 +29,7 @@ class CheckInSerializer(serializers.ModelSerializer):
     check_out_photo = serializers.ImageField(write_only=True, required=False)
     check_out_photo_url = serializers.SerializerMethodField()
     check_out_time = serializers.DateTimeField(write_only=True, required=False)
+    check_out_description = serializers.CharField(write_only=True, required=False, allow_blank=True, default='')
     total_shift_time = serializers.SerializerMethodField()
 
     class Meta:
@@ -47,6 +48,7 @@ class CheckInSerializer(serializers.ModelSerializer):
             'check_out_photo',
             'check_out_photo_url',
             'check_out_time',
+            'check_out_description',
             'total_shift_time',
         ]
         read_only_fields = ['check_in_id', 'check_in_photo_url', 'check_out_id', 'check_out_photo_url', 'total_shift_time']
@@ -229,8 +231,8 @@ class CheckInSerializer(serializers.ModelSerializer):
         except GoogleDriveUploadError as exc:
             raise serializers.ValidationError({'detail': f'Failed to upload attendance photo to Google Drive: {exc}'}) from exc
 
-    def _upsert_checkout(self, check_in, check_out_photo=None, check_out_time=None):
-        if not check_out_photo and not check_out_time:
+    def _upsert_checkout(self, check_in, check_out_photo=None, check_out_time=None, check_out_description=None):
+        if not check_out_photo and not check_out_time and not check_out_description:
             return
 
         defaults = {}
@@ -251,6 +253,8 @@ class CheckInSerializer(serializers.ModelSerializer):
             )
         if check_out_time is not None:
             defaults['check_out_time'] = check_out_time
+        if check_out_description is not None:
+            defaults['description'] = check_out_description
 
         check_out, created = CheckOut.objects.get_or_create(check_in=check_in, defaults=defaults)
 
@@ -267,7 +271,7 @@ class CheckInSerializer(serializers.ModelSerializer):
         except Schedule.DoesNotExist:
             return
 
-        if schedule.status != Schedule.STATUS_DONE:
+        if schedule.status == Schedule.STATUS_UPCOMING:
             schedule.status = Schedule.STATUS_DONE
             schedule.save(update_fields=['status'])
 
@@ -278,6 +282,7 @@ class CheckInSerializer(serializers.ModelSerializer):
         check_in_photo = validated_data.pop('check_in_photo', None)
         check_out_photo = validated_data.pop('check_out_photo', None)
         check_out_time = validated_data.pop('check_out_time', None)
+        check_out_description = validated_data.pop('check_out_description', None)
 
         if is_tutor(request.user):
             validated_data['tutor'] = request.user
@@ -302,7 +307,7 @@ class CheckInSerializer(serializers.ModelSerializer):
             schedule.check_in = check_in
             schedule.save(update_fields=['check_in'])
 
-        self._upsert_checkout(check_in, check_out_photo, check_out_time)
+        self._upsert_checkout(check_in, check_out_photo, check_out_time, check_out_description)
         return check_in
 
     def update(self, instance, validated_data):
@@ -310,6 +315,7 @@ class CheckInSerializer(serializers.ModelSerializer):
         check_in_photo = validated_data.pop('check_in_photo', None)
         check_out_photo = validated_data.pop('check_out_photo', None)
         check_out_time = validated_data.pop('check_out_time', None)
+        check_out_description = validated_data.pop('check_out_description', None)
 
         if is_tutor(request.user):
             validated_data['tutor'] = request.user
@@ -334,5 +340,5 @@ class CheckInSerializer(serializers.ModelSerializer):
             setattr(instance, attr, value)
         instance.save()
 
-        self._upsert_checkout(instance, check_out_photo, check_out_time)
+        self._upsert_checkout(instance, check_out_photo, check_out_time, check_out_description)
         return instance

@@ -102,6 +102,7 @@ export function SchedulesSection({
   const [locationStatus, setLocationStatus] = useState<"idle" | "granted" | "denied">("idle")
   const [checkInLocation, setCheckInLocation] = useState("")
   const [checkInDescription, setCheckInDescription] = useState("")
+  const [checkOutDescription, setCheckOutDescription] = useState("")
   const [activeCaptureSchedule, setActiveCaptureSchedule] = useState<Schedule | null>(null)
   const [captureMode, setCaptureMode] = useState<"check-in" | "check-out" | null>(null)
   const [capturedPhoto, setCapturedPhoto] = useState<File | null>(null)
@@ -757,6 +758,8 @@ export function SchedulesSection({
     setCaptureMode(null)
     clearCapturedPhoto()
     setCheckInDescription("")
+    setCheckOutDescription("")
+    setCheckInLocation("")
   }
 
   const captureFromCamera = () => {
@@ -843,6 +846,9 @@ export function SchedulesSection({
         const formData = new FormData()
         formData.append("check_out_time", new Date().toISOString())
         formData.append("check_out_photo", capturedPhoto)
+        if (checkOutDescription.trim()) {
+          formData.append("check_out_description", checkOutDescription.trim())
+        }
         await attendanceApi.update(activeCaptureSchedule.check_in_id, formData, token)
       }
 
@@ -1784,6 +1790,20 @@ export function SchedulesSection({
                 </section>
               ) : null}
 
+              {captureMode === "check-out" ? (
+                <section className="flex flex-col space-y-2">
+                  <label className="flex flex-col space-y-2 text-sm">
+                    <span className="font-medium">Description</span>
+                    <Textarea
+                      value={checkOutDescription}
+                      onChange={(event) => setCheckOutDescription(event.target.value)}
+                      placeholder="Short check out notes"
+                      className="min-h-20"
+                    />
+                  </label>
+                </section>
+              ) : null}
+
               <DialogFooter className="gap-2">
                 <Button
                   type="button"
@@ -1879,6 +1899,10 @@ export function SchedulesSection({
                   <div className="flex flex-col space-y-2 text-sm">
                     <p>
                       <span className="font-medium">Time:</span> {formatDateTime(detailDialogState.schedule.check_out_detail.time)}
+                    </p>
+                    <p>
+                      <span className="font-medium">Description:</span>{" "}
+                      {detailDialogState.schedule.check_out_detail.description || "-"}
                     </p>
                     {detailDialogState.schedule.check_out_detail && detailDialogState.schedule.check_in_id ? (
                       <AttendancePhoto
