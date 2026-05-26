@@ -250,10 +250,7 @@ class ScheduleViewSet(viewsets.ModelViewSet):
     def _mark_overdue_upcoming_as_missed():
         overdue_cutoff = timezone.now() - timedelta(minutes=30)
         Schedule.objects.filter(
-            status__in={
-                Schedule.STATUS_UPCOMING,
-                Schedule.STATUS_PENDING,
-            },
+            status=Schedule.STATUS_UPCOMING,
             start_datetime__lt=overdue_cutoff,
             check_in__isnull=True,
         ).update(status=Schedule.STATUS_MISSED)

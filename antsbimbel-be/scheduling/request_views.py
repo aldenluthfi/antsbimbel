@@ -307,13 +307,30 @@ class RequestViewSet(viewsets.ReadOnlyModelViewSet):
                 if len(pending_new_schedules) != len(new_schedules):
                     raise ValidationError({'detail': 'Only pending requests can be approved.'})
 
+            overdue_cutoff = timezone.now() - timedelta(minutes=30)
             new_schedules = list(request_obj.new_schedules.select_related('check_in__check_out').all())
             for schedule in new_schedules:
                 if schedule.status == Schedule.STATUS_RESCHEDULED:
                     continue
                 check_in = schedule.check_in
                 has_checkout = check_in is not None and hasattr(check_in, 'check_out')
-                schedule.status = Schedule.STATUS_DONE if has_checkout else Schedule.STATUS_UPCOMING
+                if has_checkout:
+                    schedule.status = Schedule.STATUS_DONE
+                elif check_in is None and schedule.start_datetime < overdue_cutoff:
+                    reschedule_qs = Request.objects.filter(
+                        old_schedule=schedule,
+                        request_type=Request.TYPE_RESCHEDULE,
+                    )
+                    if reschedule_qs.filter(status=Request.STATUS_PENDING).exists():
+                        schedule.status = Schedule.STATUS_PENDING
+                    elif reschedule_qs.filter(status=Request.STATUS_RESOLVED).exclude(
+                        new_schedules__status=Schedule.STATUS_REJECTED,
+                    ).exists():
+                        schedule.status = Schedule.STATUS_RESCHEDULED
+                    else:
+                        schedule.status = Schedule.STATUS_MISSED
+                else:
+                    schedule.status = Schedule.STATUS_UPCOMING
                 schedule.save(update_fields=['status'])
 
             if old_schedule and old_schedule.status == Schedule.STATUS_PENDING:
