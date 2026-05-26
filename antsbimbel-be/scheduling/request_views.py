@@ -293,8 +293,11 @@ class RequestViewSet(viewsets.ReadOnlyModelViewSet):
             if len(pending_new_schedules) != len(new_schedules):
                 raise ValidationError({'detail': 'Only pending requests can be approved.'})
 
+            new_schedules = list(request_obj.new_schedules.select_related('check_in__check_out').all())
             for schedule in new_schedules:
-                schedule.status = Schedule.STATUS_UPCOMING
+                check_in = schedule.check_in
+                has_checkout = check_in is not None and hasattr(check_in, 'check_out')
+                schedule.status = Schedule.STATUS_DONE if has_checkout else Schedule.STATUS_UPCOMING
                 schedule.save(update_fields=['status'])
 
             if old_schedule and old_schedule.status == Schedule.STATUS_PENDING:
