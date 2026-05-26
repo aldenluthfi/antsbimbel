@@ -115,6 +115,7 @@ export function SchedulesSection({
     { value: "cancelled", label: "Cancelled" },
     { value: "pending", label: "Pending" },
     { value: "rejected", label: "Rejected" },
+    { value: "rescheduled", label: "Rescheduled" },
   ]
   const reportMonthParts = useMemo(() => {
     const match = reportMonth.match(/^(\d{4})-(\d{2})$/)
