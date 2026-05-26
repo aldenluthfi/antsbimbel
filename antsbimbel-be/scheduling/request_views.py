@@ -289,12 +289,28 @@ class RequestViewSet(viewsets.ReadOnlyModelViewSet):
             if not new_schedules:
                 raise ValidationError({'detail': 'Request does not have new schedules.'})
 
-            pending_new_schedules = [schedule for schedule in new_schedules if schedule.status == Schedule.STATUS_PENDING]
-            if len(pending_new_schedules) != len(new_schedules):
-                raise ValidationError({'detail': 'Only pending requests can be approved.'})
+            if request_obj.request_type == Request.TYPE_NEW_SCHEDULE:
+                for schedule in new_schedules:
+                    if schedule.status == Schedule.STATUS_PENDING:
+                        continue
+                    if schedule.status == Schedule.STATUS_RESCHEDULED:
+                        has_approved_reschedule = Request.objects.filter(
+                            old_schedule=schedule,
+                            request_type=Request.TYPE_RESCHEDULE,
+                            status=Request.STATUS_RESOLVED,
+                        ).exists()
+                        if has_approved_reschedule:
+                            continue
+                    raise ValidationError({'detail': 'Only pending requests can be approved.'})
+            else:
+                pending_new_schedules = [s for s in new_schedules if s.status == Schedule.STATUS_PENDING]
+                if len(pending_new_schedules) != len(new_schedules):
+                    raise ValidationError({'detail': 'Only pending requests can be approved.'})
 
             new_schedules = list(request_obj.new_schedules.select_related('check_in__check_out').all())
             for schedule in new_schedules:
+                if schedule.status == Schedule.STATUS_RESCHEDULED:
+                    continue
                 check_in = schedule.check_in
                 has_checkout = check_in is not None and hasattr(check_in, 'check_out')
                 schedule.status = Schedule.STATUS_DONE if has_checkout else Schedule.STATUS_UPCOMING
@@ -306,6 +322,15 @@ class RequestViewSet(viewsets.ReadOnlyModelViewSet):
                 else:
                     old_schedule.status = Schedule.STATUS_UPCOMING
                 old_schedule.save(update_fields=['status'])
+
+            if request_obj.request_type == Request.TYPE_RESCHEDULE and old_schedule:
+                for linked_request in Request.objects.filter(
+                    new_schedules=old_schedule,
+                    request_type=Request.TYPE_NEW_SCHEDULE,
+                    status=Request.STATUS_PENDING,
+                ):
+                    linked_request.status = Request.STATUS_RESOLVED
+                    linked_request.save(update_fields=['status', 'updated_at'])
 
             request_obj.status = Request.STATUS_RESOLVED
             request_obj.save(update_fields=['status', 'updated_at'])
