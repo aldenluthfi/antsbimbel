@@ -21,7 +21,15 @@ export type Schedule = {
   description: string
   start_datetime: string
   end_datetime: string
-  status: "upcoming" | "done" | "missed" | "cancelled" | "rescheduled" | "pending" | "rejected"
+  status:
+    | "upcoming"
+    | "done"
+    | "missed"
+    | "cancelled"
+    | "rescheduled"
+    | "pending"
+    | "rejected"
+    | "autodone"
   check_in_id: number | null
   check_out_id: number | null
   check_in_detail: {
@@ -88,7 +96,11 @@ export type RequestStatusFilter = RequestStatus[]
 
 export type ScheduleSortBy = "start_datetime" | "end_datetime" | "status"
 
-export type RequestSortBy = "created_at" | "start_datetime" | "end_datetime" | "status"
+export type RequestSortBy =
+  | "created_at"
+  | "start_datetime"
+  | "end_datetime"
+  | "status"
 
 export type SortOrder = "asc" | "desc"
 
@@ -244,18 +256,28 @@ export type SaveStudentPayload = {
 }
 
 function resolveApiBase(): string {
-  const configuredBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim()
+  const configuredBase = (
+    import.meta.env.VITE_API_BASE_URL as string | undefined
+  )?.trim()
   const isBrowser = typeof window !== "undefined"
 
   if (!configuredBase) {
-    if (isBrowser && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+    if (
+      isBrowser &&
+      window.location.hostname !== "localhost" &&
+      window.location.hostname !== "127.0.0.1"
+    ) {
       return "/api"
     }
     return "http://127.0.0.1:8000/api"
   }
 
   const normalizedBase = configuredBase.replace(/\/+$/, "")
-  if (isBrowser && window.location.protocol === "https:" && normalizedBase.startsWith("http://")) {
+  if (
+    isBrowser &&
+    window.location.protocol === "https:" &&
+    normalizedBase.startsWith("http://")
+  ) {
     return normalizedBase.replace(/^http:\/\//, "https://")
   }
 
@@ -283,7 +305,11 @@ export function parseApiError(error: unknown): string {
   return "Something went wrong."
 }
 
-function buildListQuery(filters: DateFilters, page: number, pageSize: number): string {
+function buildListQuery(
+  filters: DateFilters,
+  page: number,
+  pageSize: number
+): string {
   const params = new URLSearchParams()
   params.set("page", String(page))
   params.set("page_size", String(pageSize))
@@ -304,7 +330,10 @@ function buildListQuery(filters: DateFilters, page: number, pageSize: number): s
   return `?${params.toString()}`
 }
 
-function appendStatusFilters(params: URLSearchParams, statusValues: string[]): void {
+function appendStatusFilters(
+  params: URLSearchParams,
+  statusValues: string[]
+): void {
   statusValues.forEach((statusValue) => {
     const normalizedStatusValue = statusValue.trim()
     if (!normalizedStatusValue) {
@@ -341,7 +370,9 @@ function buildScheduleListQuery(query: ScheduleListQuery): string {
   return `?${params.toString()}`
 }
 
-function buildScheduleCalendarPaginationQuery(query: ScheduleCalendarPaginationQuery): string {
+function buildScheduleCalendarPaginationQuery(
+  query: ScheduleCalendarPaginationQuery
+): string {
   const params = new URLSearchParams()
   params.set("mode", query.mode)
   params.set("cursor_date", query.cursorDate)
@@ -393,7 +424,9 @@ function buildRequestListQuery(query: RequestListQuery): string {
   return `?${params.toString()}`
 }
 
-function buildRequestCalendarPaginationQuery(query: RequestCalendarPaginationQuery): string {
+function buildRequestCalendarPaginationQuery(
+  query: RequestCalendarPaginationQuery
+): string {
   const params = new URLSearchParams()
   params.set("mode", query.mode)
   params.set("cursor_date", query.cursorDate)
@@ -419,7 +452,11 @@ function buildRequestCalendarPaginationQuery(query: RequestCalendarPaginationQue
   return `?${params.toString()}`
 }
 
-async function apiRequest<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
+async function apiRequest<T>(
+  path: string,
+  options: RequestInit = {},
+  token?: string
+): Promise<T> {
   const isFormData = options.body instanceof FormData
   const headers = new Headers(options.headers)
 
@@ -466,9 +503,16 @@ export const authApi = {
     })
   },
   logout(token: string) {
-    return apiRequest<{ detail: string }>("/auth/logout/", { method: "POST" }, token)
+    return apiRequest<{ detail: string }>(
+      "/auth/logout/",
+      { method: "POST" },
+      token
+    )
   },
-  resetPassword(payload: AdminResetPasswordPayload | TutorResetPasswordPayload, token: string) {
+  resetPassword(
+    payload: AdminResetPasswordPayload | TutorResetPasswordPayload,
+    token: string
+  ) {
     return apiRequest<{ detail: string }>(
       "/auth/reset-password/",
       {
@@ -488,19 +532,31 @@ export const usersApi = {
     if (search.trim()) {
       params.set("search", search.trim())
     }
-    return apiRequest<PaginatedResponse<ApiUser>>(`/users/?${params.toString()}`, {}, token)
+    return apiRequest<PaginatedResponse<ApiUser>>(
+      `/users/?${params.toString()}`,
+      {},
+      token
+    )
   },
   create(payload: CreateUserPayload, token: string) {
-    return apiRequest<ApiUser>("/users/", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }, token)
+    return apiRequest<ApiUser>(
+      "/users/",
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+      token
+    )
   },
   update(id: number, payload: UpdateUserPayload, token: string) {
-    return apiRequest<ApiUser>(`/users/${id}/`, {
-      method: "PATCH",
-      body: JSON.stringify(payload),
-    }, token)
+    return apiRequest<ApiUser>(
+      `/users/${id}/`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      },
+      token
+    )
   },
   remove(id: number, token: string) {
     return apiRequest<void>(`/users/${id}/`, { method: "DELETE" }, token)
@@ -515,7 +571,11 @@ export const studentsApi = {
     if (search.trim()) {
       params.set("search", search.trim())
     }
-    return apiRequest<PaginatedResponse<Student>>(`/students/?${params.toString()}`, {}, token)
+    return apiRequest<PaginatedResponse<Student>>(
+      `/students/?${params.toString()}`,
+      {},
+      token
+    )
   },
   create(payload: SaveStudentPayload, token: string) {
     return apiRequest<Student>(
@@ -545,26 +605,49 @@ export const studentsApi = {
 export const schedulesApi = {
   list(queryInput: ScheduleListQuery, token: string) {
     const query = buildScheduleListQuery(queryInput)
-    return apiRequest<PaginatedResponse<Schedule>>(`/schedules/${query}`, {}, token)
+    return apiRequest<PaginatedResponse<Schedule>>(
+      `/schedules/${query}`,
+      {},
+      token
+    )
   },
-  calendarPagination(queryInput: ScheduleCalendarPaginationQuery, token: string) {
+  calendarPagination(
+    queryInput: ScheduleCalendarPaginationQuery,
+    token: string
+  ) {
     const query = buildScheduleCalendarPaginationQuery(queryInput)
-    return apiRequest<ScheduleCalendarPaginationResponse>(`/schedules/calendar-pagination/${query}`, {}, token)
+    return apiRequest<ScheduleCalendarPaginationResponse>(
+      `/schedules/calendar-pagination/${query}`,
+      {},
+      token
+    )
   },
   create(payload: SaveSchedulePayload, token: string) {
-    return apiRequest<Schedule>("/schedules/", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    }, token)
+    return apiRequest<Schedule>(
+      "/schedules/",
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+      token
+    )
   },
   update(id: number, payload: Partial<SaveSchedulePayload>, token: string) {
-    return apiRequest<Schedule>(`/schedules/${id}/`, {
-      method: "PATCH",
-      body: JSON.stringify(payload),
-    }, token)
+    return apiRequest<Schedule>(
+      `/schedules/${id}/`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      },
+      token
+    )
   },
   requestSchedule(payload: TutorScheduleRequestPayload, token: string) {
-    return apiRequest<{ request_id: number; request_count: number; schedule: Schedule }>(
+    return apiRequest<{
+      request_id: number
+      request_count: number
+      schedule: Schedule
+    }>(
       "/schedules/request/",
       {
         method: "POST",
@@ -597,7 +680,11 @@ export const schedulesApi = {
     )
   },
   getEmailBlastPermission(token: string) {
-    return apiRequest<EmailBlastPermissionState>("/schedules/email-blast-permission/", {}, token)
+    return apiRequest<EmailBlastPermissionState>(
+      "/schedules/email-blast-permission/",
+      {},
+      token
+    )
   },
   sendEmailBlast(mode: EmailBlastMode, token: string) {
     return apiRequest<EmailBlastResponse>(
@@ -614,32 +701,63 @@ export const schedulesApi = {
 export const requestsApi = {
   list(queryInput: RequestListQuery, token: string) {
     const query = buildRequestListQuery(queryInput)
-    return apiRequest<PaginatedResponse<ScheduleRequest>>(`/requests/${query}`, {}, token)
+    return apiRequest<PaginatedResponse<ScheduleRequest>>(
+      `/requests/${query}`,
+      {},
+      token
+    )
   },
-  calendarPagination(queryInput: RequestCalendarPaginationQuery, token: string) {
+  calendarPagination(
+    queryInput: RequestCalendarPaginationQuery,
+    token: string
+  ) {
     const query = buildRequestCalendarPaginationQuery(queryInput)
-    return apiRequest<RequestCalendarPaginationResponse>(`/requests/calendar-pagination/${query}`, {}, token)
+    return apiRequest<RequestCalendarPaginationResponse>(
+      `/requests/calendar-pagination/${query}`,
+      {},
+      token
+    )
   },
   approve(id: number, token: string) {
-    return apiRequest<ScheduleRequest>(`/requests/${id}/approve/`, { method: "POST" }, token)
+    return apiRequest<ScheduleRequest>(
+      `/requests/${id}/approve/`,
+      { method: "POST" },
+      token
+    )
   },
   reject(id: number, token: string) {
-    return apiRequest<ScheduleRequest>(`/requests/${id}/reject/`, { method: "POST" }, token)
+    return apiRequest<ScheduleRequest>(
+      `/requests/${id}/reject/`,
+      { method: "POST" },
+      token
+    )
   },
 }
 
 export const attendanceApi = {
   list(filters: DateFilters, page: number, pageSize: number, token: string) {
     const query = buildListQuery(filters, page, pageSize)
-    return apiRequest<PaginatedResponse<Attendance>>(`/attendance/${query}`, {}, token)
+    return apiRequest<PaginatedResponse<Attendance>>(
+      `/attendance/${query}`,
+      {},
+      token
+    )
   },
   create(formData: FormData, token: string) {
-    return apiRequest<Attendance>("/attendance/", { method: "POST", body: formData }, token)
+    return apiRequest<Attendance>(
+      "/attendance/",
+      { method: "POST", body: formData },
+      token
+    )
   },
   update(id: number, formData: FormData, token: string) {
-    return apiRequest<Attendance>(`/attendance/${id}/`, {
-      method: "PATCH",
-      body: formData,
-    }, token)
+    return apiRequest<Attendance>(
+      `/attendance/${id}/`,
+      {
+        method: "PATCH",
+        body: formData,
+      },
+      token
+    )
   },
 }
