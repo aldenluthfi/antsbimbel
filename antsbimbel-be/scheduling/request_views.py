@@ -408,7 +408,7 @@ class RequestViewSet(viewsets.ReadOnlyModelViewSet):
                         schedule.status = Schedule.STATUS_RESCHEDULED
                     else:
                         schedule.status = Schedule.STATUS_MISSED
-                elif check_in is not None and check_in.check_out is None:
+                else:
                     schedule.status = Schedule.STATUS_AUTODONE
                 schedule.save(update_fields=["status"])
 
