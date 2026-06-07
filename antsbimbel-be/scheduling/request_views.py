@@ -384,7 +384,11 @@ class RequestViewSet(viewsets.ReadOnlyModelViewSet):
                 if schedule.status == Schedule.STATUS_RESCHEDULED:
                     continue
                 check_in = schedule.check_in
-                has_checkout = check_in is not None and check_in.check_out is not None
+                has_checkout = (
+                    check_in is not None
+                    and hasattr(check_in, "check_out")
+                    and check_in.check_out is not None
+                )
                 if has_checkout:
                     schedule.status = Schedule.STATUS_DONE
                 elif check_in is None and schedule.start_datetime < overdue_cutoff:
