@@ -49,7 +49,7 @@ export function getScheduleStatusPresentation(schedule: Schedule): {
     }
   }
 
-  if (schedule.status === "done") {
+  if (schedule.status === "done" || schedule.status === "autodone") {
     return {
       label: "Done",
       className: "bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-200 hover:text-emerald-900 hover:border-emerald-300",
