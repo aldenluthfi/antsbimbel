@@ -326,22 +326,22 @@ export function StudentsSection({ token }: { token: string }) {
             <div className="grid gap-3">
               <label className="flex flex-col space-y-2 text-sm">
                 <span className="font-medium">
-                  First name (Nama Panggilan) <span className="text-destructive">*</span>
+                  Nickname <span className="text-destructive">*</span>
                 </span>
                 <Input
                   required
                   value={createForm.first_name}
                   onChange={(event) => setCreateForm({ ...createForm, first_name: event.target.value })}
-                  placeholder="Nama panggilan"
+                  placeholder="Nickname"
                   className="h-9"
                 />
               </label>
               <label className="flex flex-col space-y-2 text-sm">
-                <span className="font-medium">Last name (Nama Lengkap)</span>
+                <span className="font-medium">Full name</span>
                 <Input
                   value={createForm.last_name}
                   onChange={(event) => setCreateForm({ ...createForm, last_name: event.target.value })}
-                  placeholder="Nama lengkap"
+                  placeholder="Full name"
                   className="h-9"
                 />
               </label>
@@ -421,22 +421,22 @@ export function StudentsSection({ token }: { token: string }) {
             <div className="grid gap-3">
               <label className="flex flex-col space-y-2 text-sm">
                 <span className="font-medium">
-                  First name (Nama Panggilan) <span className="text-destructive">*</span>
+                  Nickname <span className="text-destructive">*</span>
                 </span>
                 <Input
                   required
                   value={editForm.first_name}
                   onChange={(event) => setEditForm({ ...editForm, first_name: event.target.value })}
-                  placeholder="Nama panggilan"
+                  placeholder="Nickname"
                   className="h-9"
                 />
               </label>
               <label className="flex flex-col space-y-2 text-sm">
-                <span className="font-medium">Last name (Nama Lengkap)</span>
+                <span className="font-medium">Full name</span>
                 <Input
                   value={editForm.last_name}
                   onChange={(event) => setEditForm({ ...editForm, last_name: event.target.value })}
-                  placeholder="Nama lengkap"
+                  placeholder="Full name"
                   className="h-9"
                 />
               </label>
