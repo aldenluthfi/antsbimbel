@@ -6,7 +6,7 @@ from rest_framework import serializers
 from .location_utils import build_location_search_url
 from .models import Student, Schedule
 from .permissions import is_admin
-from .serialization_utils import compose_name
+from .serialization_utils import compose_display_name
 
 
 User = get_user_model()
@@ -96,7 +96,7 @@ class ScheduleSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.CharField())
     def get_tutor_name(self, obj):
-        display_name = compose_name(obj.tutor.first_name, obj.tutor.last_name)
+        display_name = compose_display_name(obj.tutor.first_name, obj.tutor.last_name)
         return display_name or obj.tutor.username
 
     @extend_schema_field(serializers.CharField(allow_null=True))
@@ -105,7 +105,7 @@ class ScheduleSerializer(serializers.ModelSerializer):
         if not student:
             return None
 
-        return compose_name(student.first_name, student.last_name) or f'#{student.id}'
+        return compose_display_name(student.first_name, student.last_name) or f'#{student.id}'
 
     @extend_schema_field(serializers.IntegerField(allow_null=True))
     def get_check_in_id(self, obj):

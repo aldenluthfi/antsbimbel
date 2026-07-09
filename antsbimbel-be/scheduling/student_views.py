@@ -29,6 +29,7 @@ class StudentViewSet(viewsets.ModelViewSet):
                 Q(first_name__icontains=search_value)
                 | Q(last_name__icontains=search_value)
                 | Q(email__icontains=search_value)
+                | Q(parent_email__icontains=search_value)
                 | Q(level__icontains=search_value)
             )
             if search_value.isdigit():

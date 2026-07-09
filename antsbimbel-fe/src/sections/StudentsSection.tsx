@@ -49,6 +49,7 @@ export function StudentsSection({ token }: { token: string }) {
     first_name: "",
     last_name: "",
     email: "",
+    parent_email: "",
     level: "SD" as Student["level"],
     is_active: true,
   })
@@ -56,6 +57,7 @@ export function StudentsSection({ token }: { token: string }) {
     first_name: "",
     last_name: "",
     email: "",
+    parent_email: "",
     level: "SD" as Student["level"],
     is_active: true,
   })
@@ -91,6 +93,7 @@ export function StudentsSection({ token }: { token: string }) {
         first_name: "",
         last_name: "",
         email: "",
+        parent_email: "",
         level: "SD",
         is_active: true,
       })
@@ -109,6 +112,7 @@ export function StudentsSection({ token }: { token: string }) {
       first_name: student.first_name,
       last_name: student.last_name,
       email: student.email,
+      parent_email: student.parent_email,
       level: student.level,
       is_active: student.is_active,
     })
@@ -209,7 +213,8 @@ export function StudentsSection({ token }: { token: string }) {
           <article key={student.id} className="rounded-xl border border-border bg-background p-3 text-sm">
             <p className="font-semibold">{getStudentFullName(student)}</p>
             <p className="mt-2 text-muted-foreground">Level: {student.level}</p>
-            <p className="text-muted-foreground">Email: {student.email || "-"}</p>
+            <p className="text-muted-foreground">Student email: {student.email || "-"}</p>
+            <p className="text-muted-foreground">Parent email: {student.parent_email || "-"}</p>
             <p className="mt-2 text-muted-foreground">Active: {student.is_active ? "Yes" : "No"}</p>
             <div className="mt-3 flex gap-2">
               <Button className="flex-1" size="sm" variant="outline" onClick={() => openEditStudent(student)}>
@@ -235,8 +240,9 @@ export function StudentsSection({ token }: { token: string }) {
           <thead className="bg-muted/70 text-left">
             <tr>
               <th className="w-56 px-3 py-2">Name</th>
-              <th className="w-40 px-3 py-2">Level</th>
-              <th className="px-3 py-2">Email</th>
+              <th className="w-24 px-3 py-2">Level</th>
+              <th className="px-3 py-2">Student email</th>
+              <th className="px-3 py-2">Parent email</th>
               <th className="w-56 px-3 py-2">Actions</th>
             </tr>
           </thead>
@@ -249,6 +255,9 @@ export function StudentsSection({ token }: { token: string }) {
                   </td>
                   <td className="px-3 py-2">
                     <Skeleton className="h-4 w-10" />
+                  </td>
+                  <td className="px-3 py-2">
+                    <Skeleton className="h-4 w-11/12" />
                   </td>
                   <td className="px-3 py-2">
                     <Skeleton className="h-4 w-11/12" />
@@ -267,6 +276,7 @@ export function StudentsSection({ token }: { token: string }) {
                 <td className="px-3 py-2">{getStudentFullName(student)}</td>
                 <td className="px-3 py-2">{student.level}</td>
                 <td className="px-3 py-2">{student.email || "-"}</td>
+                <td className="px-3 py-2">{student.parent_email || "-"}</td>
                 <td className="px-3 py-2">
                   <div className="flex gap-2">
                     <Button size="sm" variant="outline" onClick={() => openEditStudent(student)}>
@@ -283,7 +293,7 @@ export function StudentsSection({ token }: { token: string }) {
             ))}
             {students.length === 0 && !loading ? (
               <tr>
-                <td className="px-3 py-5 text-center text-muted-foreground" colSpan={4}>
+                <td className="px-3 py-5 text-center text-muted-foreground" colSpan={5}>
                   No students found.
                 </td>
               </tr>
@@ -315,32 +325,42 @@ export function StudentsSection({ token }: { token: string }) {
             <div className="grid gap-3">
               <label className="flex flex-col space-y-2 text-sm">
                 <span className="font-medium">
-                  First name <span className="text-destructive">*</span>
+                  First name (Nama Panggilan) <span className="text-destructive">*</span>
                 </span>
                 <Input
                   required
                   value={createForm.first_name}
                   onChange={(event) => setCreateForm({ ...createForm, first_name: event.target.value })}
-                  placeholder="First name"
+                  placeholder="Nama panggilan"
                   className="h-9"
                 />
               </label>
               <label className="flex flex-col space-y-2 text-sm">
-                <span className="font-medium">Last name</span>
+                <span className="font-medium">Last name (Nama Lengkap)</span>
                 <Input
                   value={createForm.last_name}
                   onChange={(event) => setCreateForm({ ...createForm, last_name: event.target.value })}
-                  placeholder="Last name"
+                  placeholder="Nama lengkap"
                   className="h-9"
                 />
               </label>
               <label className="flex flex-col space-y-2 text-sm">
-                <span className="font-medium">Email</span>
+                <span className="font-medium">Student email (Email Siswa)</span>
                 <Input
                   type="email"
                   value={createForm.email}
                   onChange={(event) => setCreateForm({ ...createForm, email: event.target.value })}
                   placeholder="student@example.com"
+                  className="h-9"
+                />
+              </label>
+              <label className="flex flex-col space-y-2 text-sm">
+                <span className="font-medium">Parent email (Email Orang Tua)</span>
+                <Input
+                  type="email"
+                  value={createForm.parent_email}
+                  onChange={(event) => setCreateForm({ ...createForm, parent_email: event.target.value })}
+                  placeholder="orangtua@example.com"
                   className="h-9"
                 />
               </label>
@@ -400,32 +420,42 @@ export function StudentsSection({ token }: { token: string }) {
             <div className="grid gap-3">
               <label className="flex flex-col space-y-2 text-sm">
                 <span className="font-medium">
-                  First name <span className="text-destructive">*</span>
+                  First name (Nama Panggilan) <span className="text-destructive">*</span>
                 </span>
                 <Input
                   required
                   value={editForm.first_name}
                   onChange={(event) => setEditForm({ ...editForm, first_name: event.target.value })}
-                  placeholder="First name"
+                  placeholder="Nama panggilan"
                   className="h-9"
                 />
               </label>
               <label className="flex flex-col space-y-2 text-sm">
-                <span className="font-medium">Last name</span>
+                <span className="font-medium">Last name (Nama Lengkap)</span>
                 <Input
                   value={editForm.last_name}
                   onChange={(event) => setEditForm({ ...editForm, last_name: event.target.value })}
-                  placeholder="Last name"
+                  placeholder="Nama lengkap"
                   className="h-9"
                 />
               </label>
               <label className="flex flex-col space-y-2 text-sm">
-                <span className="font-medium">Email</span>
+                <span className="font-medium">Student email (Email Siswa)</span>
                 <Input
                   type="email"
                   value={editForm.email}
                   onChange={(event) => setEditForm({ ...editForm, email: event.target.value })}
                   placeholder="student@example.com"
+                  className="h-9"
+                />
+              </label>
+              <label className="flex flex-col space-y-2 text-sm">
+                <span className="font-medium">Parent email (Email Orang Tua)</span>
+                <Input
+                  type="email"
+                  value={editForm.parent_email}
+                  onChange={(event) => setEditForm({ ...editForm, parent_email: event.target.value })}
+                  placeholder="orangtua@example.com"
                   className="h-9"
                 />
               </label>

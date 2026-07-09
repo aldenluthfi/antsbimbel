@@ -88,6 +88,7 @@ def _build_recipients(schedule_qs):
     for schedule in schedule_qs:
         tutor_email = (schedule.tutor.email or '').strip()
         student_email = (schedule.student.email or '').strip()
+        parent_email = (schedule.student.parent_email or '').strip()
 
         schedule_payload = {
             'id': schedule.id,
@@ -112,6 +113,14 @@ def _build_recipients(schedule_qs):
                 'schedule': schedule_payload,
             }
         )
+        if parent_email:
+            recipients[('parent', schedule.student.id)].append(
+                {
+                    'email': parent_email,
+                    'name': _display_student_name(schedule.student),
+                    'schedule': schedule_payload,
+                }
+            )
 
     deduped = []
     for entries in recipients.values():

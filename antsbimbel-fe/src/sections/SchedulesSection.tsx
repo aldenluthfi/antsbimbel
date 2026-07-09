@@ -99,6 +99,7 @@ export function SchedulesSection({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [cameraStatus, setCameraStatus] = useState<"idle" | "granted" | "denied">("idle")
+  const [cameraFacing, setCameraFacing] = useState<"environment" | "user">("environment")
   const [locationStatus, setLocationStatus] = useState<"idle" | "granted" | "denied">("idle")
   const [checkInLocation, setCheckInLocation] = useState("")
   const [checkInDescription, setCheckInDescription] = useState("")
@@ -576,7 +577,7 @@ export function SchedulesSection({
     }
   }
 
-  const requestCameraPermission = async () => {
+  const requestCameraPermission = async (facing: "environment" | "user" = cameraFacing) => {
     if (typeof window === "undefined" || !("mediaDevices" in navigator)) {
       setCameraStatus("denied")
       setError("Camera is not available in this browser/device.")
@@ -588,7 +589,7 @@ export function SchedulesSection({
     try {
       stopCamera()
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: "environment" } },
+        video: { facingMode: { ideal: facing } },
         audio: false,
       })
 
@@ -661,6 +662,13 @@ export function SchedulesSection({
   const restartCamera = async () => {
     setError("")
     await requestCameraPermission()
+  }
+
+  const switchCamera = async () => {
+    const nextFacing = cameraFacing === "environment" ? "user" : "environment"
+    setCameraFacing(nextFacing)
+    setError("")
+    await requestCameraPermission(nextFacing)
   }
 
   const refreshCurrentLocation = async () => {
@@ -1710,7 +1718,9 @@ export function SchedulesSection({
 
             <div className="flex flex-col space-y-5">
               <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                <span className="rounded-full bg-muted px-2 py-1">Camera: {cameraStatus}</span>
+                <span className="rounded-full bg-muted px-2 py-1">
+                  Camera: {cameraStatus} ({cameraFacing === "user" ? "front" : "back"})
+                </span>
                 {captureMode === "check-in" ? (
                   <span className="rounded-full bg-muted px-2 py-1">Location: {locationStatus}</span>
                 ) : null}
@@ -1746,6 +1756,9 @@ export function SchedulesSection({
                     <>
                       <Button type="button" onClick={captureFromCamera}>
                         Capture photo
+                      </Button>
+                      <Button type="button" variant="outline" onClick={() => void switchCamera()}>
+                        Switch camera
                       </Button>
                       <Button type="button" variant="outline" onClick={() => void restartCamera()}>
                         Restart camera

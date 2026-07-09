@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { authApi, type ApiUser, parseApiError, usersApi } from "@/lib/api"
 import { notifySubmitError } from "@/lib/helpers/notifications"
+import { getUserFullName } from "@/lib/helpers/schedule"
 
 export function UsersSection({ token }: { token: string }) {
   const [users, setUsers] = useState<ApiUser[]>([])
@@ -235,7 +236,7 @@ export function UsersSection({ token }: { token: string }) {
                 {user.role}
               </Badge>
             </div>
-            <p className="mt-2 text-muted-foreground">{user.first_name} {user.last_name}</p>
+            <p className="mt-2 text-muted-foreground">{getUserFullName(user)}</p>
             <p className="mt-1 break-all text-muted-foreground">{user.email || "-"}</p>
             <p className="mt-1 text-muted-foreground">Active: {user.is_active ? "Yes" : "No"}</p>
             <div className="mt-3 flex gap-2">
@@ -293,7 +294,7 @@ export function UsersSection({ token }: { token: string }) {
             {users.map((user) => (
               <tr key={user.id} className="border-t border-border">
                 <td className="px-3 py-2">
-                  {user.first_name} {user.last_name}
+                  {getUserFullName(user)}
                 </td>
                 <td className="px-3 py-2">{user.username}</td>
                 <td className="px-3 py-2">{user.email || "-"}</td>
@@ -357,25 +358,25 @@ export function UsersSection({ token }: { token: string }) {
               </label>
               <label className="flex flex-col space-y-2 text-sm">
                 <span className="font-medium">
-                  First name <span className="text-destructive">*</span>
+                  First name (Nama Panggilan) <span className="text-destructive">*</span>
                 </span>
                 <Input
                   required
                   value={createForm.first_name}
                   onChange={(event) => setCreateForm({ ...createForm, first_name: event.target.value })}
-                  placeholder="First name"
+                  placeholder="Nama panggilan"
                   className="h-9"
                 />
               </label>
               <label className="flex flex-col space-y-2 text-sm">
                 <span className="font-medium">
-                  Last name <span className="text-destructive">*</span>
+                  Last name (Nama Lengkap) <span className="text-destructive">*</span>
                 </span>
                 <Input
                   required
                   value={createForm.last_name}
                   onChange={(event) => setCreateForm({ ...createForm, last_name: event.target.value })}
-                  placeholder="Last name"
+                  placeholder="Nama lengkap"
                   className="h-9"
                 />
               </label>
@@ -436,20 +437,20 @@ export function UsersSection({ token }: { token: string }) {
                 />
               </label>
               <label className="flex flex-col space-y-2 text-sm">
-                <span className="font-medium">First name</span>
+                <span className="font-medium">First name (Nama Panggilan)</span>
                 <Input
                   value={editForm.first_name}
                   onChange={(event) => setEditForm({ ...editForm, first_name: event.target.value })}
-                  placeholder="First name"
+                  placeholder="Nama panggilan"
                   className="h-9"
                 />
               </label>
               <label className="flex flex-col space-y-2 text-sm">
-                <span className="font-medium">Last name</span>
+                <span className="font-medium">Last name (Nama Lengkap)</span>
                 <Input
                   value={editForm.last_name}
                   onChange={(event) => setEditForm({ ...editForm, last_name: event.target.value })}
-                  placeholder="Last name"
+                  placeholder="Nama lengkap"
                   className="h-9"
                 />
               </label>

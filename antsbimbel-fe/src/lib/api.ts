@@ -185,6 +185,7 @@ export type Student = {
   first_name: string
   last_name: string
   email: string
+  parent_email: string
   level: StudentLevel
   is_active: boolean
   created_at: string
@@ -251,6 +252,7 @@ export type SaveStudentPayload = {
   first_name: string
   last_name: string
   email: string
+  parent_email: string
   level: StudentLevel
   is_active: boolean
 }

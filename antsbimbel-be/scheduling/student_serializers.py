@@ -11,6 +11,7 @@ class StudentSerializer(serializers.ModelSerializer):
             'first_name',
             'last_name',
             'email',
+            'parent_email',
             'level',
             'is_active',
             'created_at',

@@ -13,6 +13,7 @@ class Student(models.Model):
 	first_name = models.CharField(max_length=150)
 	last_name = models.CharField(max_length=150, blank=True)
 	email = models.EmailField(blank=True, default='')
+	parent_email = models.EmailField(blank=True, default='')
 	level = models.CharField(max_length=3, choices=Level.choices, default=Level.SD)
 	is_active = models.BooleanField(default=True)
 	created_at = models.DateTimeField(auto_now_add=True)
