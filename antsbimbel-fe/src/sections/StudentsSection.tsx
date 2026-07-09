@@ -124,6 +124,7 @@ export function StudentsSection({ token }: { token: string }) {
       first_name: "",
       last_name: "",
       email: "",
+      parent_email: "",
       level: "SD",
       is_active: true,
     })
